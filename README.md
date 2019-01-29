@@ -21,6 +21,7 @@ Bucket Wipe is a Java application and can be run using the `java -jar` command f
 C:\Users\cwikj\Downloads>java -jar bucket-wipe-1.10.jar
 Error: Missing required options: e, a, s
 usage: java -jar bucket-wipe.jar [options] <bucket-name>
+ 
  -a,--access-key <access-key>   the S3 access key
  -e,--endpoint <URI>            the endpoint to connect to, including
                                 protocol, host, and port
@@ -40,6 +41,7 @@ usage: java -jar bucket-wipe.jar [options] <bucket-name>
  -t,--threads <threads>         number of threads to use
     --vhost                     enables DNS buckets and turns off load
                                 balancer
+ 
 Note that if you are using an endpoint that is a load balancer, you will want to use --no-smart-client to turn off the built-in software load balancer.
   
  # Disclaimers about deleting data
