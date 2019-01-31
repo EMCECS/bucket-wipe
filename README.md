@@ -69,3 +69,4 @@ usage:  java -jar bucket-wipe.jar [options] <bucket-name>
 
 Note that if you are using an endpoint that is a load balancer, you will want to use --no-smart-client to turn off the built-in software load balancer.
   
+For more information, please see the [wiki](https://github.com/EMCECS/bucket-wipe/wiki)
