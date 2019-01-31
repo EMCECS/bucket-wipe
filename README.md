@@ -5,7 +5,7 @@ Current Version: 1.10
 
 # Disclaimers about deleting data
 
-THIS TOOL PERMANENTLY DELETES DATA
+THIS TOOL PERMANENTLY DELETES ALL DATA IN A BUCKET
 
 # How to Build 
 
