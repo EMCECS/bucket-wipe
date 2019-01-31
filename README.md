@@ -3,6 +3,10 @@ The purpose of the bucket-wipe tool is to enumerate a bucket and delete its cont
 
 Current Version: 1.10
 
+# Disclaimers about deleting data
+
+THIS TOOL PERMANENTLY DELETES DATA
+
 # How to Build 
 
 1. Clone bucket-wipe tool from githib 
@@ -65,4 +69,3 @@ usage:  java -jar bucket-wipe.jar [options] <bucket-name>
 
 Note that if you are using an endpoint that is a load balancer, you will want to use --no-smart-client to turn off the built-in software load balancer.
   
- # Disclaimers about deleting data
