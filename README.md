@@ -19,9 +19,9 @@ $ cd bucket-wipe
 ```
 3. Build jar file
 ```
-$ ./gradlew jar
+$ ./gradlew shadowJar
 ```
-4. The build will be located in `<path_to_bucket_wipe>bucket_wipe/build/libs/bucket-wipe-1.10.jar`
+4. The build will be located in `<path_to_bucket_wipe>/bucket_wipe/build/libs/bucket-wipe-1.10.jar`
 
 # Usage
 Bucket Wipe is a Java application and can be run using the `java -jar` command followed by the location of the JAR file.  Running without any other arguments will produce command-line help.
