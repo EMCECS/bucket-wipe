@@ -15,10 +15,6 @@
 group 'com.emc.ecs'
 version '1.10'
 
-apply plugin: 'java'
-
-sourceCompatibility = 1.7
-
 buildscript {
     repositories {
         jcenter {
@@ -35,7 +31,8 @@ apply plugin: 'com.github.johnrengelman.shadow'
 apply plugin: 'idea'
 apply plugin: 'eclipse'
 
-mainClassName = 'BucketWipe'
+sourceCompatibility = 1.7
+mainClassName = 'com.emc.ecs.tool.BucketWipe'
 
 repositories {
     mavenCentral()
@@ -55,6 +52,6 @@ compileJava {
 }
 
 shadowJar {
-    baseName = 'BucketWipe'
+    baseName = 'bucket-wipe'
     classifier = null
 }
