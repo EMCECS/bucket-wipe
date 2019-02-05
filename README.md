@@ -11,7 +11,7 @@ THIS TOOL PERMANENTLY DELETES ALL DATA IN A BUCKET
 
 1. Clone bucket-wipe tool from githib 
 ```
-$ git clone https://github.com/EMCECS/bucket-wipe
+$ git clone https://github.com/EMCECS/bucket-wipe.git
 ```
 2. cd to the bucket-wipe directory
 ```
