@@ -3,9 +3,9 @@ The purpose of the bucket-wipe tool is to enumerate a bucket and delete its cont
 
 Current Version: 1.10
 
-# Disclaimers about deleting data
+# Disclaimer about deleting data
 
-THIS TOOL PERMANENTLY DELETES ALL DATA IN A BUCKET
+WARNING: THIS TOOL PERMANENTLY DELETES ALL DATA IN A BUCKET, INCLUDING ALL VERSIONS!! Even if you have versioning enabled, the tool will destroy all data in the bucket and (by default) the bucket itself.  If this is not what you want, use a different tool.
 
 # How to Build 
 
