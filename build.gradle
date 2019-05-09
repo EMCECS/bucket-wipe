@@ -12,8 +12,9 @@
  * express or implied. See the License for the specific language governing
  * permissions and limitations under the License.
  */
-group 'com.emc.ecs'
+group 'com.emc.tools'
 version '1.10'
+ext.mainClass = 'com.emc.ecs.tool.BucketWipe'
 
 buildscript {
     repositories {
@@ -25,60 +26,74 @@ buildscript {
         classpath 'com.github.jengelman.gradle.plugins:shadow:1.2.3'
     }
 }
-apply plugin: 'java'
-apply plugin: 'application'
-apply plugin: 'com.github.johnrengelman.shadow'
+
 apply plugin: 'idea'
 apply plugin: 'eclipse'
+apply plugin: 'java'
+apply plugin: 'distribution'
+apply plugin: 'com.github.johnrengelman.shadow'
 
-sourceCompatibility = 1.7
-mainClassName = 'com.emc.ecs.tool.BucketWipe'
+defaultTasks 'distZip'
 
 repositories {
     mavenCentral()
 }
 
 dependencies {
-    compile 'com.sun.jersey:jersey-client:1.19.4'
-    compile 'com.emc.ecs:object-client:3.1.1'
-    compile 'com.sun.jersey:jersey-core:1.19.4'
-    compile 'javax.ws.rs:jsr311-api:1.1.1'
-    compile 'com.emc.ecs:smart-client:2.2.0'
-    compile 'com.sun.jersey.contribs:jersey-apache-client4:1.19.4'
-    compile 'org.apache.httpcomponents:httpclient:4.1.1 -> 4.2.6'
-    compile 'org.apache.httpcomponents:httpcore:4.2.5'
-    compile 'commons-logging:commons-logging:1.1.1'
-    compile 'commons-codec:commons-codec:1.6 -> 1.10'
-    compile 'org.codehaus.jackson:jackson-jaxrs:1.9.13'
-    compile 'org.codehaus.jackson:jackson-core-asl:1.9.13'
-    compile 'org.codehaus.jackson:jackson-mapper-asl:1.9.13'
-    compile 'org.codehaus.jackson:jackson-xc:1.9.13'
-    compile 'org.slf4j:slf4j-api:1.7.5'
-    compile 'com.sun.jersey:jersey-json:1.19.4'
-    compile 'org.codehaus.jettison:jettison:1.1'
-    compile 'com.sun.xml.bind:jaxb-impl:2.2.3-1'
-    compile 'javax.xml.bind:jaxb-api:2.2.2'
-    compile 'javax.activation:activation:1.1'
-    compile 'org.slf4j:slf4j-log4j12:1.7.5'
-    compile 'org.slf4j:slf4j-api:1.7.5'
-    compile 'log4j:log4j:1.2.17'
-    compile 'com.emc.ecs:object-transform:1.1.0'
-    compile 'commons-codec:commons-codec:1.10'
-    compile 'org.b1.pack:lzma-sdk-4j:9.22.0'
-    compile 'org.jdom:jdom2:2.0.6'
-    compile 'commons-cli:commons-cli:1.3.1'
-    compile 'org.hamcrest:hamcrest-core:1.3'
+    compile 'com.emc.ecs:object-client:3.1.1',
+            'com.emc.ecs:atmos-client:3.1.0',
+            'commons-cli:commons-cli:1.3.1'
     testCompile 'junit:junit:4.12'
 }
 
-
 compileJava {
-    sourceCompatibility = 1.7
-    targetCompatibility = 1.7
-    options.bootClasspath = null
+    sourceCompatibility = 1.8
+    targetCompatibility = 1.8
+}
+
+javadoc {
+    options.quiet()
 }
 
 shadowJar {
-    baseName = 'bucket-wipe'
-    classifier = null
+   doFirst {
+        classifier ''
+        manifest {
+            attributes 'Main-Class': mainClass,
+                    'Implementation-Version': version,
+                    'Class-Path': { configurations.runtime.collect { it.getName() }.join(' ') }
+        }
+        mergeServiceFiles()
+    }
 }
+
+task javadocJar(type: Jar, dependsOn: javadoc) {
+    classifier = 'javadoc'
+    from "${docsDir}/javadoc"
+}
+
+task sourcesJar(type: Jar) {
+    classifier = 'sources'
+    from sourceSets.main.allSource
+}
+
+distributions {
+    main {
+        contents {
+            from('.') {
+                include '*.txt'
+            }
+            into('3rd-party-licenses') {
+                from '3rd-party-licenses'
+            }
+            from shadowJar
+            into('doc') {
+                from javadocJar
+            }
+            into('src') {
+                from sourcesJar
+            }
+        }
+    }
+}
+
