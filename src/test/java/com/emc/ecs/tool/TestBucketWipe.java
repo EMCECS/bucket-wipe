@@ -28,17 +28,186 @@ import java.io.File;
 import java.io.FileWriter;
 import java.net.URI;
 import java.rmi.server.ExportException;
+// atmos related
+import com.emc.atmos.AtmosException;
+import com.emc.atmos.StickyThreadAlgorithm;
+import com.emc.atmos.api.*;
+import com.emc.atmos.api.bean.*;
+import com.emc.atmos.api.bean.adapter.Iso8601Adapter;
+import com.emc.atmos.api.jersey.AtmosApiBasicClient;
+import com.emc.atmos.api.jersey.AtmosApiClient;
+import com.emc.atmos.api.multipart.MultipartEntity;
+import com.emc.atmos.api.request.*;
+import com.emc.util.StreamUtil;
+import com.sun.jersey.api.client.Client;
+import com.sun.jersey.api.client.ClientHandlerException;
+import com.sun.jersey.api.client.ClientRequest;
+import com.sun.jersey.api.client.ClientResponse;
+import com.sun.jersey.api.client.filter.ClientFilter;
+import com.sun.jersey.core.header.FormDataContentDisposition;
+import com.sun.jersey.multipart.BodyPart;
+import com.sun.jersey.multipart.FormDataMultiPart;
+import org.apache.log4j.Logger;
+import org.junit.*;
+import org.junit.runner.RunWith;
+
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import javax.ws.rs.core.MediaType;
+import javax.xml.bind.DatatypeConverter;
+import java.io.*;
+import java.net.URI;
+import java.net.URL;
+import java.net.URLConnection;
+import java.net.URLEncoder;
+import java.nio.charset.Charset;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.util.*;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+
 
 public class TestBucketWipe {
     private String accessKey;
     private String secretKey;
     private URI endpoint;
 
+    // Atmos test related
+    private String atmosUID;
+    private String atmosSecret;
+    private URI atmosEndpoint;
+
+    private static final String ATMOS_TEST_DIR_PREFIX = "atmos_wipe_";
+
+    private AtmosConfig config;
+    protected AtmosApi api;
+
     @Before
     public void setup() throws Exception {
         accessKey = TestConfig.getPropertyNotEmpty(TestProperties.S3_ACCESS_KEY);
         secretKey = TestConfig.getPropertyNotEmpty(TestProperties.S3_SECRET_KEY);
         endpoint = new URI(TestConfig.getPropertyNotEmpty(TestProperties.S3_ENDPOINT));
+
+        // Atmos related setAtmosatmosWipe
+        atmosSecret = TestConfig.getPropertyNotEmpty(TestProperties.ATMOS_SECRET);
+        atmosEndpoint = new URI(TestConfig.getPropertyNotEmpty(TestProperties.ATMOS_ENDPOINT));
+        atmosUID = TestConfig.getPropertyNotEmpty(TestProperties.ATMOS_UID);
+
+
+        AtmosConfig config = new AtmosConfig(atmosUID, atmosSecret, atmosEndpoint);
+
+        Assume.assumeTrue("Could not load Atmos configuration", config != null);
+        config.setDisableSslValidation(false);
+        config.setEnableExpect100Continue(false);
+        config.setEnableRetry(false);
+        config.setLoadBalancingAlgorithm(new StickyThreadAlgorithm());
+        api = new AtmosApiClient(config);
+    }
+
+    protected int AtmosCreateObjectTreeRecursively(ObjectPath path, int maxFileNums, int depth) {
+
+        //    String rootDirName = "/test-dir_root/";
+        String fileContent = "test atmos bucket wipe tool file contents bla-bla-bla";
+        int depthCounter = depth;
+        ObjectPath dirPath;
+
+        if (path.isDirectory()) { //if
+            dirPath = path;
+            do {
+                // create maxNumFiles in the current directory
+                for (int i = 0; i < maxFileNums; i++) {
+                    // create file name
+                    ObjectPath filePath = new ObjectPath(dirPath + rand8char() + "_file_" + i + ".tmp");
+                    CreateObjectRequest request = new CreateObjectRequest().identifier(filePath);
+                    ObjectId id = this.api.createObject(request).getObjectId();
+                    Assert.assertNotNull("null file ID returned", id);
+                }
+                // if this is not the last subdirectory create subdirectory
+                if (depthCounter > 0) {
+                    dirPath = new ObjectPath(dirPath + rand8char() + "_dir_" + depthCounter + "/");
+                    ObjectId id = this.api.createDirectory(dirPath);
+                    Assert.assertNotNull("null directory ID returned", id);
+                    depthCounter--;
+                    depthCounter = AtmosCreateObjectTreeRecursively(dirPath, maxFileNums, depthCounter);
+                } else {
+                    return depthCounter;
+                }
+            } while (depthCounter > 0);
+        } // end if
+        return depthCounter;
+    }
+
+    private String rand8char() {
+        Random r = new Random();
+        StringBuilder sb = new StringBuilder(8);
+        for (int i = 0; i < 8; i++) {
+            sb.append((char) ('a' + r.nextInt(26)));
+        }
+        return sb.toString();
+    }
+
+
+    // Test connection to Atmos server
+    @Test
+    public void testAtmosConnect() {
+
+        try {
+            String version = api.getServiceInformation().getAtmosVersion();
+            //    Assert.fail("- Atmos version-  : " + version);
+            Assert.assertFalse("- Error -1- error - version is null but expected not", version == null);
+
+        } catch (AtmosException e) {
+            Assert.fail("- Error -2- connection to Atmos server failed with error code : " + e.getErrorCode());
+            System.exit(3);
+        }
+    }
+
+    @Test
+    public void testAtmosCreateDirectoryStructure() {
+
+        int numberFiles = 24;
+        int depth = 8;
+        String rootDirName = "/test-dir_root/";
+        // create root directory in tenat space
+        ObjectPath path = new ObjectPath(rootDirName);
+        ObjectId id = this.api.createDirectory(path);
+        Assert.assertNotNull("- Error -1- null root directory ID returned", id);
+
+        try {
+            AtmosCreateObjectTreeRecursively(path, numberFiles, depth);
+        } catch (Exception e) {
+            Assert.fail("- Error -2- directory stucture creation failed with error message : " + e.getMessage());
+        }
+    }
+
+    @Test
+    public void testAtmosListDirectory() {
+
+        String rootDirName = "/test-dir_root/";
+        try {
+            ObjectPath path = new ObjectPath(rootDirName);
+            ListDirectoryRequest request = new ListDirectoryRequest().path(path);
+            List<DirectoryEntry> ents = this.api.listDirectory(request).getEntries();
+            if (!ents.isEmpty()) {
+                BucketWipe bucketWipe = new BucketWipe().withEndpoint(atmosEndpoint).withAccessKey(atmosUID).withSecretKey(atmosSecret);
+                String atmSecretKey = bucketWipe.getSecretKey();
+                Assert.assertEquals("- Error -1- wrong secret key returned : ", atmosSecret, atmSecretKey);
+                bucketWipe.withAtmos().withRemoteRoot(rootDirName).run();
+            }
+            try {
+                // verify that rootDirName was deleted
+                ents = this.api.listDirectory(request).getEntries();
+                Assert.fail("- Error -2- top directory was not deleted : " + rootDirName);
+
+            } catch (AtmosException e) {
+                // expected exception  - rootDirName does not exists
+                Assert.assertEquals("- Error -2- wrong error code returned : ", 404, e.getHttpCode());
+            }
+        } catch (Exception e) {
+            Assert.fail("- Error -3- BucketWipe operation failed with error message : " + e.getMessage());
+        }
     }
 
     @Test
