@@ -59,7 +59,7 @@ usage: java -jar bucket-wipe.jar [options] <bucket-name>
                                 
  -o,--atmos-object-space        atmos only: use atmos object space  If
                                 this option is not set namespace object
-                                structure will used by default
+                                structure will be used by default
                                 
  -p,--prefix <prefix>           deletes only objects under the specified
                                 prefix or Atmos namespace path
