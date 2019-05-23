@@ -32,19 +32,16 @@ Bucket Wipe is a Java application and can be run using the `java -jar` command f
 C:\Users\cwikj\Downloads>java -jar bucket-wipe-1.10.jar
 
 Error: Missing required options: e, a, s
-
-Error: Missing required options: e, a, s
-usage: java -jar bucket-wipe.jar [options] <bucket-name or atmos directory path>
+usage: java -jar bucket-wipe.jar [options] <bucket-name>
 
  -a,--access-key <access-key>   the S3 access key or Atmos UID in the form
                                 of subtenantid/uid, e.g.
                                 640f9a5cc636423fbc748566b397d1e1/uid1
                                 
- -atmos,--atmos                 the tool is used to delete Atmos namespace
- 
+    --atmos                     the tool is used to delete Atmos namespace
+    
  -e,--endpoint <URI>            the endpoint to connect to, including
-                                protocol, host, and port or Atmos access
-                                point host
+                                protocol, host, and port
                                 
  -h,--help                      displays this help text
  
@@ -65,13 +62,10 @@ usage: java -jar bucket-wipe.jar [options] <bucket-name or atmos directory path>
                                 structure will used by default
                                 
  -p,--prefix <prefix>           deletes only objects under the specified
-                                prefix
+                                prefix or Atmos namespace path
                                 
- -port,--atmosport <port>       Atmos access point port (default 80)
+ -s,--secret-key <secret-key>   the secret key
  
- -s,--secret-key <secret-key>   the secret key or Atmos Shared secret if
-                                option -atmos is used
-                                
     --stacktrace                displays full stack trace of errors
     
  -t,--threads <threads>         number of threads to use
