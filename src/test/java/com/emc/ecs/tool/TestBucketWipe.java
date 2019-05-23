@@ -1,12 +1,12 @@
 /**
  * Copyright 2016-2019 Dell Inc. or its subsidiaries.  All Rights Reserved.
- *
+ * <p>
  * Licensed under the Apache License, Version 2.0 (the "License").
  * You may not use this file except in compliance with the License.
  * A copy of the License is located at
- *
+ * <p>
  * http://www.apache.org/licenses/LICENSE-2.0.txt
- *
+ * <p>
  * or in the "license" file accompanying this file. This file is distributed
  * on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
  * express or implied. See the License for the specific language governing
@@ -14,12 +14,23 @@
  */
 package com.emc.ecs.tool;
 
+import com.emc.atmos.AtmosException;
+import com.emc.atmos.StickyThreadAlgorithm;
+import com.emc.atmos.api.AtmosApi;
+import com.emc.atmos.api.AtmosConfig;
+import com.emc.atmos.api.ObjectId;
+import com.emc.atmos.api.ObjectPath;
+import com.emc.atmos.api.bean.DirectoryEntry;
+import com.emc.atmos.api.jersey.AtmosApiClient;
+import com.emc.atmos.api.request.CreateObjectRequest;
+import com.emc.atmos.api.request.ListDirectoryRequest;
 import com.emc.object.Protocol;
 import com.emc.object.s3.S3Client;
 import com.emc.object.s3.S3Config;
 import com.emc.object.s3.S3Exception;
 import com.emc.object.s3.jersey.S3JerseyClient;
 import org.junit.Assert;
+import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -27,46 +38,8 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
 import java.net.URI;
-import java.rmi.server.ExportException;
-// atmos related
-import com.emc.atmos.AtmosException;
-import com.emc.atmos.StickyThreadAlgorithm;
-import com.emc.atmos.api.*;
-import com.emc.atmos.api.bean.*;
-import com.emc.atmos.api.bean.adapter.Iso8601Adapter;
-import com.emc.atmos.api.jersey.AtmosApiBasicClient;
-import com.emc.atmos.api.jersey.AtmosApiClient;
-import com.emc.atmos.api.multipart.MultipartEntity;
-import com.emc.atmos.api.request.*;
-import com.emc.util.StreamUtil;
-import com.sun.jersey.api.client.Client;
-import com.sun.jersey.api.client.ClientHandlerException;
-import com.sun.jersey.api.client.ClientRequest;
-import com.sun.jersey.api.client.ClientResponse;
-import com.sun.jersey.api.client.filter.ClientFilter;
-import com.sun.jersey.core.header.FormDataContentDisposition;
-import com.sun.jersey.multipart.BodyPart;
-import com.sun.jersey.multipart.FormDataMultiPart;
-import org.apache.log4j.Logger;
-import org.junit.*;
-import org.junit.runner.RunWith;
-
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
-import javax.ws.rs.core.MediaType;
-import javax.xml.bind.DatatypeConverter;
-import java.io.*;
-import java.net.URI;
-import java.net.URL;
-import java.net.URLConnection;
-import java.net.URLEncoder;
-import java.nio.charset.Charset;
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
-import java.util.*;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+import java.util.List;
+import java.util.Random;
 
 
 public class TestBucketWipe {
@@ -108,7 +81,6 @@ public class TestBucketWipe {
 
     protected int AtmosCreateObjectTreeRecursively(ObjectPath path, int maxFileNums, int depth) {
 
-        //    String rootDirName = "/test-dir_root/";
         String fileContent = "test atmos bucket wipe tool file contents bla-bla-bla";
         int depthCounter = depth;
         ObjectPath dirPath;
@@ -165,10 +137,11 @@ public class TestBucketWipe {
     }
 
     @Test
-    public void testAtmosCreateDirectoryStructure() {
+    public void testAtmosCreateDeleteDirStructure() {
 
-        int numberFiles = 24;
-        int depth = 8;
+        int numberFiles = 3; // number of files in each directory
+        int depth = 3; //depth of the directory tree
+        int width = 3; // number of sub-directories in the root layer
         String rootDirName = "/test-dir_root/";
         // create root directory in tenat space
         ObjectPath path = new ObjectPath(rootDirName);
@@ -176,29 +149,25 @@ public class TestBucketWipe {
         Assert.assertNotNull("- Error -1- null root directory ID returned", id);
 
         try {
-            AtmosCreateObjectTreeRecursively(path, numberFiles, depth);
+            for (int i = 0; i < width; i++) {
+                AtmosCreateObjectTreeRecursively(path, numberFiles, depth);
+            }
         } catch (Exception e) {
             Assert.fail("- Error -2- directory stucture creation failed with error message : " + e.getMessage());
         }
-    }
-
-    @Test
-    public void testAtmosListDirectory() {
-
-        String rootDirName = "/test-dir_root/";
+        // now delete directory created structure with bucket-wipe Atmos option call
         try {
-            ObjectPath path = new ObjectPath(rootDirName);
             ListDirectoryRequest request = new ListDirectoryRequest().path(path);
             List<DirectoryEntry> ents = this.api.listDirectory(request).getEntries();
             if (!ents.isEmpty()) {
                 BucketWipe bucketWipe = new BucketWipe().withEndpoint(atmosEndpoint).withAccessKey(atmosUID).withSecretKey(atmosSecret);
                 String atmSecretKey = bucketWipe.getSecretKey();
                 Assert.assertEquals("- Error -1- wrong secret key returned : ", atmosSecret, atmSecretKey);
-                bucketWipe.withAtmos().withRemoteRoot(rootDirName).run();
+                bucketWipe.withAtmos().withPrefix(rootDirName).run();
             }
             try {
-                // verify that rootDirName was deleted
-                ents = this.api.listDirectory(request).getEntries();
+                // verify that rootDirName was deleted - the call below should result in exception
+                this.api.listDirectory(request).getEntries();
                 Assert.fail("- Error -2- top directory was not deleted : " + rootDirName);
 
             } catch (AtmosException e) {
@@ -208,7 +177,9 @@ public class TestBucketWipe {
         } catch (Exception e) {
             Assert.fail("- Error -3- BucketWipe operation failed with error message : " + e.getMessage());
         }
+
     }
+
 
     @Test
     public void testUrlEncoding() {

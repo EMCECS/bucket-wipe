@@ -1,12 +1,12 @@
 /**
  * Copyright 2016-2019 Dell Inc. or its subsidiaries.  All Rights Reserved.
- *
+ * <p>
  * Licensed under the Apache License, Version 2.0 (the "License").
  * You may not use this file except in compliance with the License.
  * A copy of the License is located at
- *
+ * <p>
  * http://www.apache.org/licenses/LICENSE-2.0.txt
- *
+ * <p>
  * or in the "license" file accompanying this file. This file is distributed
  * on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
  * express or implied. See the License for the specific language governing
@@ -14,6 +14,11 @@
  */
 package com.emc.ecs.tool;
 
+import com.emc.atmos.AtmosException;
+import com.emc.atmos.api.*;
+import com.emc.atmos.api.bean.DirectoryEntry;
+import com.emc.atmos.api.jersey.AtmosApiClient;
+import com.emc.atmos.api.request.ListDirectoryRequest;
 import com.emc.object.Protocol;
 import com.emc.object.s3.S3Client;
 import com.emc.object.s3.S3Config;
@@ -25,54 +30,23 @@ import com.emc.object.s3.request.ListObjectsRequest;
 import com.emc.object.s3.request.ListVersionsRequest;
 import com.emc.object.util.RestUtil;
 import org.apache.commons.cli.*;
+import org.jgrapht.graph.DefaultEdge;
+import org.jgrapht.graph.SimpleDirectedGraph;
+import org.jgrapht.traverse.BreadthFirstIterator;
 
 import java.io.BufferedReader;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
 import java.net.URI;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-// Atmos imports
-import java.io.File;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Set;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 
-import org.apache.commons.cli.CommandLine;
-import org.apache.commons.cli.CommandLineParser;
-import org.apache.commons.cli.GnuParser;
-import org.apache.commons.cli.HelpFormatter;
-import org.apache.commons.cli.Option;
-import org.apache.commons.cli.Options;
-import org.apache.commons.cli.ParseException;
-
-import com.emc.atmos.api.AtmosApi;
-import com.emc.atmos.api.jersey.AtmosApiClient;
-import com.emc.atmos.AtmosException;
-import com.emc.atmos.api.ObjectPath;
-import com.emc.atmos.api.*;
-import com.emc.atmos.api.bean.ListDirectoryResponse;
-import com.emc.atmos.api.bean.DirectoryEntry;
-import com.emc.atmos.api.request.ListDirectoryRequest;
-// atmos graph related
-import java.util.concurrent.Callable;
-
-import org.jgrapht.graph.DefaultEdge;
-import org.jgrapht.graph.SimpleDirectedGraph;
-import org.jgrapht.traverse.BreadthFirstIterator;
 
 public class BucketWipe implements Runnable {
     public static final int DEFAULT_THREADS = 32;
@@ -91,9 +65,11 @@ public class BucketWipe implements Runnable {
                 System.exit(1);
             }
 
-            if (line.getArgs().length == 0) throw new IllegalArgumentException("must specify a bucket");
+            if ((!line.hasOption("atmos")) && (line.getArgs().length == 0))
+                throw new IllegalArgumentException("must specify a bucket");
 
             bucketWipe = new BucketWipe();
+            bucketWipe.setAtmosOption(line.hasOption("atmos"));
             bucketWipe.setEndpoint(new URI(line.getOptionValue("e")));
             bucketWipe.setVhost(line.hasOption("vhost"));
             bucketWipe.setSmartClient(!line.hasOption("no-smart-client"));
@@ -101,19 +77,21 @@ public class BucketWipe implements Runnable {
             bucketWipe.setAccessKey(line.getOptionValue("a"));
             bucketWipe.setSecretKey(line.getOptionValue("s"));
             bucketWipe.setSourceListFile(line.getOptionValue("l"));
-            if (line.hasOption("p")) bucketWipe.setPrefix(line.getOptionValue("p"));
+            // if prefix option is not set for Atmos we start delete from the subtenant root
+            if (line.hasOption("p")) {
+                bucketWipe.setPrefix(line.getOptionValue("p"));
+            } else if (line.hasOption("atmos")) {
+                bucketWipe.setPrefix("/");
+            }
             if (line.hasOption("t")) bucketWipe.setThreads(Integer.parseInt(line.getOptionValue("t")));
             if (line.hasOption("hier")) bucketWipe.setHierarchical(true);
-            bucketWipe.setBucket(line.getArgs()[0]);
+            if (!line.hasOption("atmos")) bucketWipe.setBucket(line.getArgs()[0]);
             //*********start Atmos related*******************************
-            bucketWipe.setAtmosOption(line.hasOption("atmos"));
-            bucketWipe.setPort(Integer.parseInt(line.getOptionValue("port", "80")));
             if (line.hasOption("o")) {
                 bucketWipe.setAtmosObjectSpace(true);
             } else {
                 bucketWipe.setAtmosObjectSpace(false);
             }
-            bucketWipe.setRemoteRoot(line.getArgs()[0]);  // remoteroot
             // ****************end atmos related
             // update the user
             final AtomicBoolean monitorRunning = new AtomicBoolean(true);
@@ -176,7 +154,7 @@ public class BucketWipe implements Runnable {
     }
 
     private static void printHelp() {
-        new HelpFormatter().printHelp("java -jar bucket-wipe.jar [options] <bucket-name or atmos directory path>", options());
+        new HelpFormatter().printHelp("java -jar bucket-wipe.jar [options] <bucket-name>", options());
     }
 
     // options to use for both atmos and EMC
@@ -184,10 +162,10 @@ public class BucketWipe implements Runnable {
         Options options = new Options();
         options.addOption(Option.builder().longOpt("stacktrace").desc("displays full stack trace of errors").build());
         options.addOption(Option.builder("h").longOpt("help").desc("displays this help text").build());
-        options.addOption(Option.builder("atmos").longOpt("atmos")
+        options.addOption(Option.builder().longOpt("atmos")
                 .desc("the tool is used to delete Atmos namespace").build());
         options.addOption(Option.builder("e").longOpt("endpoint").hasArg().argName("URI").required()
-                .desc("the endpoint to connect to, including protocol, host, and port or Atmos access point host").build());
+                .desc("the endpoint to connect to, including protocol, host, and port").build());
         options.addOption(Option.builder().longOpt("vhost")
                 .desc("enables DNS buckets and turns off load balancer").build());
         options.addOption(Option.builder().longOpt("no-smart-client")
@@ -195,13 +173,11 @@ public class BucketWipe implements Runnable {
         options.addOption(Option.builder("a").longOpt("access-key").hasArg().argName("access-key").required()
                 .desc("the S3 access key or Atmos UID in the form of subtenantid/uid, e.g. 640f9a5cc636423fbc748566b397d1e1/uid1").build());
         options.addOption(Option.builder("s").longOpt("secret-key").hasArg().argName("secret-key").required()
-                .desc("the secret key or Atmos Shared secret if option -atmos is used").build());
+                .desc("the secret key").build());
         options.addOption(Option.builder("p").longOpt("prefix").hasArg().argName("prefix")
-                .desc("deletes only objects under the specified prefix").build());
+                .desc("deletes only objects under the specified prefix or Atmos namespace path").build());
         options.addOption(Option.builder("o").longOpt("atmos-object-space").desc("atmos only: use atmos object space  " +
                 "If this option is not set namespace object structure will used by default").build());
-        options.addOption(Option.builder("port").longOpt("atmosport").hasArg().argName("port")
-                .desc("Atmos access point port (default 80)").build());
         options.addOption(Option.builder("t").longOpt("threads").hasArg().argName("threads")
                 .desc("number of threads to use").build());
         options.addOption(Option.builder("hier").longOpt("hierarchical").desc("Enumerate the bucket hierarchically.  " +
@@ -218,7 +194,7 @@ public class BucketWipe implements Runnable {
     private String accessKey;
     private String secretKey;
     private String bucket;
-    private String prefix;
+    private String prefix; // this variable also used for Atmos namespace path
     private int threads = DEFAULT_THREADS;
     private boolean keepBucket;
     private EnhancedThreadPoolExecutor executor;
@@ -229,17 +205,13 @@ public class BucketWipe implements Runnable {
     private String sourceListFile;
 
     // *********Atmos related
-    private boolean atmosOption;
-    private String remoteroot; // remoteroot is Atmos' bucket name
+    private boolean atmosOption; // flag is set when Atmos option is used
     private AtmosApi atmosClient;
-    private boolean atmosObjectSpace;
-    private long dirCount;
-    private long fileCount;
+    private boolean atmosObjectSpace; // flag to indicate if Atmos object space is used
+    private long dirCount; // Atmos counter for deleted directories
+    private long fileCount; // Atmos counter for deleted files
     private SimpleDirectedGraph<TaskNode, DefaultEdge> graph;
-    private Set<TaskNode> failedItems;
-    private BlockingQueue<Runnable> queue;
-    private ThreadPoolExecutor pool;
-    private int port;
+    private Set<TaskNode> failedItems; // set that holds Atmos failed tasks
     private int failedCount;
     private int completedCount;
 
@@ -258,14 +230,14 @@ public class BucketWipe implements Runnable {
             // Atmos initialize delete counters
             AtmosInit();
             // Make sure remote path is in the correct format
-            if (!remoteroot.startsWith("/")) {
-                remoteroot = "/" + remoteroot;
+            if (!prefix.startsWith("/")) {
+                prefix = "/" + prefix;
             }
-            if (!remoteroot.endsWith("/")) {
+            if (!prefix.endsWith("/")) {
                 // Must be a dir (ends with /)
-                remoteroot = remoteroot + "/";
+                prefix = prefix + "/";
             }
-
+            // create atmos configuration
             AtmosConfig atmosConfiguration = new AtmosConfig(accessKey, secretKey, endpoint);
 
             atmosClient = new AtmosApiClient(atmosConfiguration);
@@ -275,7 +247,7 @@ public class BucketWipe implements Runnable {
             if (sourceListFile != null) {
                 deleteAtmosObjectsWithList(atmosClient, sourceListFile);
             } else {
-                deleteAtmosObjectsHierarchical(atmosClient, remoteroot);
+                deleteAtmosObjectsHierarchical(atmosClient, prefix);
             }
             // shutdown executor
             executor.shutdown();
@@ -340,16 +312,23 @@ public class BucketWipe implements Runnable {
 
                 // Look for available unsubmitted tasks
                 BreadthFirstIterator<TaskNode, DefaultEdge> iterator = new BreadthFirstIterator<TaskNode, DefaultEdge>(graph);
+                // while iterator has the next directory or file in the graph assign it to the task node,
+                // and add to the execution queue if not done so & there is no inward task node
                 while (iterator.hasNext()) {  // while start
                     TaskNode tskNode = iterator.next();
                     if (graph.inDegreeOf(tskNode) == 0 && !tskNode.isQueued()) { // if start
                         tskNode.setQueued(true);
                         futures.add(executor.blockingSubmit(tskNode));
                     } // if end
-                } // while end
+                } // while end. when we done with the current row - delete all files and go to the next level down
             } //graph end
             while (futures.size() > QUEUE_SIZE) {
                 handleSingleFutures(futures, QUEUE_SIZE / 2);
+            }
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException e) {
+                // Ignore
             }
         } // while end
         handleSingleFutures(futures, futures.size());
@@ -659,27 +638,6 @@ public class BucketWipe implements Runnable {
         return this;
     }
 
-    public int getPort() {
-        return port;
-    }
-
-    public void setPort(int port) {
-        this.port = port;
-    }
-
-    public String getRemoteRoot() {
-        return remoteroot;
-    }
-
-    public void setRemoteRoot(String remoteroot) {
-        this.remoteroot = remoteroot;
-    }
-
-    public BucketWipe withRemoteRoot(String remoteroot) {
-        setRemoteRoot(remoteroot);
-        return this;
-    }
-
     public long getAtmosDeletedDirs() {
         return dirCount;
     }
@@ -763,7 +721,7 @@ public class BucketWipe implements Runnable {
         }
     }
     // *************** atmos related start
-
+    // this task used to delete object representation of the atmos
     protected class DeleteAtmosObjectTask implements Runnable {
         private AtmosApi client;
         private ObjectIdentifier id;
@@ -781,6 +739,7 @@ public class BucketWipe implements Runnable {
 
 
     //*********************  DELETE ATMOS FILE TASK *************************************
+    // this task deletes the file in the current directory
     protected class DeleteAtmosFileTask extends TaskNode {
 
         private ObjectPath filePath;
@@ -791,10 +750,11 @@ public class BucketWipe implements Runnable {
             try {
                 atmosWipe.getAtmosClient().delete(filePath);
             } catch (AtmosException e) {
+                // if the task fails to delete the file we capture exception and return false
                 atmosWipe.failure(this, filePath, e);
                 return new TaskResult(false);
             }
-
+            // otherwise return success
             atmosWipe.success(this, filePath);
             return new TaskResult(true);
         }
@@ -828,12 +788,14 @@ public class BucketWipe implements Runnable {
                 // All entries in this directory will become parents of the child task
                 // that deletes the current directory after it's empty.
                 DeleteAtmosDirChild child = new DeleteAtmosDirChild();
+                // we add this diretory as a parent to the child
                 child.addParent(this);
+                // add child to the graph as vertex and created edge to the parent
                 child.addToGraph(atmosWipe.getGraph());
                 for (DeleteAtmosDirChild ch : parentDirs) {
                     ch.addParent(child);
                 }
-
+                // list all entries in the directory by creating new list request
                 ListDirectoryRequest request = new ListDirectoryRequest().path(dirPath);
                 List<DirectoryEntry> dirEntries = atmosWipe.getAtmosClient().listDirectory(request).getEntries();
 
@@ -841,19 +803,20 @@ public class BucketWipe implements Runnable {
                     dirEntries.addAll(atmosWipe.getAtmosClient().listDirectory(request).getEntries());
                 }
 
-
+                // for each directory entry
                 for (DirectoryEntry entry : dirEntries) {
                     // get path for the current entry
                     ObjectPath entryPath = new ObjectPath(dirPath, entry);
-
+                    // if entry is a directory add the task to the graph
                     if (entry.isDirectory()) {
                         DeleteAtmosDirTask deleteDirTask = new DeleteAtmosDirTask();
-
+                        // set path to the directory
                         deleteDirTask.setDirPath(entryPath);
                         deleteDirTask.setAtmosDelete(atmosWipe);
                         deleteDirTask.addParent(this);
-
+                        // add delete directory task to the graph
                         deleteDirTask.addToGraph(atmosWipe.getGraph());
+                        // add parent to the child class
                         child.addParent(deleteDirTask);
                         // If we have any other children to depend on, add them
                         for (DeleteAtmosDirChild ch : parentDirs) {
@@ -861,12 +824,18 @@ public class BucketWipe implements Runnable {
                             deleteDirTask.parentDirs.add(ch);
                         }
                         deleteDirTask.parentDirs.add(child);
+                     // if the entry is a file create file delete task add it to the graph
+                     // and also add parent
                     } else {
+                        // create new file delete task
                         DeleteAtmosFileTask deleteFileTask = new DeleteAtmosFileTask();
+                        // set path to the file
                         deleteFileTask.setFilePath(entryPath);
                         deleteFileTask.setAtmosDelete(atmosWipe);
                         deleteFileTask.addParent(this);
+                        // increment deleted files counter
                         atmosWipe.increment(entryPath);
+                        // add file delete task to the graph
                         deleteFileTask.addToGraph(atmosWipe.getGraph());
                         child.addParent(deleteFileTask);
                     }
@@ -892,18 +861,20 @@ public class BucketWipe implements Runnable {
         }
 
         /**
-         * You can't delete the directory until all the children are deleted, so
-         * this task will depend on all the children before delete.
+         * this task actually deletes directory, however,
+         * the current directory cannot be deleted until all the children below are deleted.
+         * so, this task will depend on all the children before it deletes the current one.
          */
         public class DeleteAtmosDirChild extends TaskNode {
 
             @Override
             protected TaskResult execute() throws Exception {
+                // first we verify if we are at the subtenant level
                 if (!dirPath.toString().equals("/")) {
                     // Delete directory
                     try {
-                        //*skip delete* directory if keep-bucket option is set
-                        if (!(dirPath.isDirectory() && remoteroot.equals(dirPath.toString()) && keepBucket)) {
+                        //*skip delete* directory if keep-bucket option is set and we are at the prefix( atmos root directory level)
+                        if (!(dirPath.isDirectory() && prefix.equals(dirPath.toString()) && keepBucket)) {
                             atmosWipe.getAtmosClient().delete(dirPath);
                             atmosWipe.increment(dirPath);
                         }
@@ -942,23 +913,19 @@ public class BucketWipe implements Runnable {
     }
 
     //************************************* ATMOS related tasks**********************
+    // this task node class that used for tasks that placed in the graph
+    // and then executed by executor
     protected abstract class TaskNode implements Callable<TaskResult> {
 
         protected Set<TaskNode> parentTasks;
         protected SimpleDirectedGraph<TaskNode, DefaultEdge> graph;
         private boolean queued;
 
-        public TaskNode(Set<TaskNode> parentTasks) {
-            this.parentTasks = parentTasks;
-            if (parentTasks == null) {
-                this.parentTasks = new HashSet<TaskNode>();
-            }
-        }
-
+         // constructor creates new hashset of taskNodes
         public TaskNode() {
             this.parentTasks = new HashSet<TaskNode>();
         }
-
+        // methos adds parent to parent tasks set
         public void addParent(TaskNode parent) {
             parentTasks.add(parent);
             if (graph != null) {
@@ -967,7 +934,7 @@ public class BucketWipe implements Runnable {
                 }
             }
         }
-
+        // this method adds taskNode to graph as a vertex and also creates edge directed to it
         public void addToGraph(SimpleDirectedGraph<TaskNode, DefaultEdge> graph) {
             this.graph = graph;
 
@@ -982,13 +949,13 @@ public class BucketWipe implements Runnable {
                 }
             }
         }
-
+        // this call executes the taskNode and removes it from the graph upon execution
         @Override
         public TaskResult call() throws Exception {
             if (graph == null) {
                 throw new IllegalStateException("Task not in graph?");
             }
-
+            // initialize task result
             TaskResult result = null;
             try {
                 result = execute();
@@ -1001,7 +968,7 @@ public class BucketWipe implements Runnable {
 
             return result;
         }
-
+        // this method removes current vertex from the graph
         private void removeFromGraph() {
             if (graph == null) {
                 throw new IllegalStateException("Task not in graph?");
@@ -1010,7 +977,8 @@ public class BucketWipe implements Runnable {
                 graph.removeVertex(this);
             }
         }
-
+        // this execute method is implemented in DeleteAtmosDirTask.DeleteAtmosDirChild,
+        // DeleteAtmosDirTask, and DeleteAtmosFileTask
         protected abstract TaskResult execute() throws Exception;
 
         public void setQueued(boolean queued) {
@@ -1021,7 +989,7 @@ public class BucketWipe implements Runnable {
             return queued;
         }
     }
-
+    // this class is used to return Task execution result
     protected class TaskResult {
         private boolean successful;
 
