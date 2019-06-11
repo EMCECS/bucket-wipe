@@ -20,4 +20,9 @@ public class TestProperties {
     public static final String S3_SECRET_KEY = "s3.secret_key";
 
     public static final String PROXY_URI = "http.proxyUri";
+    
+    // Atmos properties
+    public static final String ATMOS_ENDPOINT = "atmos.endpoint";
+    public static final String ATMOS_UID = "atmos.uid"; 
+    public static final String ATMOS_SECRET = "atmos.secret";
 }

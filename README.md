@@ -32,37 +32,44 @@ Bucket Wipe is a Java application and can be run using the `java -jar` command f
 C:\Users\cwikj\Downloads>java -jar bucket-wipe-1.10.jar
 
 Error: Missing required options: e, a, s
+usage: java -jar bucket-wipe.jar [options] <bucket-name>
 
-usage:  java -jar bucket-wipe.jar [options] <bucket-name> 
-
- -a,--access-key <access-key>   the S3 access key
-
+ -a,--access-key <access-key>   the S3 access key or Atmos UID in the form
+                                of subtenantid/uid, e.g.
+                                640f9a5cc636423fbc748566b397d1e1/uid1
+                                
+    --atmos                     the tool is used to delete Atmos namespace
+    
  -e,--endpoint <URI>            the endpoint to connect to, including
                                 protocol, host, and port
                                 
  -h,--help                      displays this help text
-
+ 
  -hier,--hierarchical           Enumerate the bucket hierarchically.  This
                                 is recommended for ECS's
                                 filesystem-enabled buckets.
-
+                                
     --keep-bucket               do not delete the bucket when done
-
+    
  -l,--key-list <file>           instead of listing bucket, delete objects
                                 matched in source file key list
-
+                                
     --no-smart-client           disables the ECS smart-client. use this
                                 option with an external load balancer
-
+                                
+ -o,--atmos-object-space        atmos only: use atmos object space  If
+                                this option is not set namespace object
+                                structure will be used by default
+                                
  -p,--prefix <prefix>           deletes only objects under the specified
-                                Prefix
-
+                                prefix or Atmos namespace path
+                                
  -s,--secret-key <secret-key>   the secret key
-
+ 
     --stacktrace                displays full stack trace of errors
-
+    
  -t,--threads <threads>         number of threads to use
-
+ 
     --vhost                     enables DNS buckets and turns off load
                                 balancer
 ```
