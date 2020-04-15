@@ -18,33 +18,21 @@ import com.emc.object.Protocol;
 import com.emc.object.s3.S3Client;
 import com.emc.object.s3.S3Config;
 import com.emc.object.s3.S3Exception;
-import com.emc.object.s3.bean.*;
 import com.emc.object.s3.jersey.S3JerseyClient;
-import com.emc.object.s3.request.DeleteObjectsRequest;
-import com.emc.object.s3.request.ListObjectsRequest;
-import com.emc.object.s3.request.ListVersionsRequest;
-import com.emc.object.util.RestUtil;
-import org.apache.commons.cli.*;
+import org.apache.commons.cli.CommandLine;
+import org.apache.commons.cli.DefaultParser;
+import org.apache.commons.cli.HelpFormatter;
+import org.apache.commons.cli.Option;
+import org.apache.commons.cli.Options;
 
-import java.io.BufferedReader;
-import java.io.FileNotFoundException;
-import java.io.FileReader;
-import java.io.IOException;
 import java.net.URI;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.List;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 
 public class BucketWipe implements Runnable {
     public static final int DEFAULT_THREADS = 32;
-    public static final int QUEUE_SIZE = 2000;
+
+    private static BucketWipeResult wipeResult = new BucketWipeResult();
 
     public static void main(String[] args) throws Exception {
         boolean debug = false;
@@ -76,17 +64,13 @@ public class BucketWipe implements Runnable {
 
             // update the user
             final AtomicBoolean monitorRunning = new AtomicBoolean(true);
-            final BucketWipe fBucketWipe = bucketWipe;
-            Thread statusThread = new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    while (monitorRunning.get()) {
-                        try {
-                            System.out.print("Objects deleted: " + fBucketWipe.getDeletedObjects() + "\r");
-                            Thread.sleep(500);
-                        } catch (InterruptedException e) {
-                            // ignore
-                        }
+            Thread statusThread = new Thread(() -> {
+                while (monitorRunning.get()) {
+                    try {
+                        System.out.print("Objects deleted: " + wipeResult.getObjectsDeleted() + "\r");
+                        Thread.sleep(500);
+                    } catch (InterruptedException e) {
+                        // ignore
                     }
                 }
             });
@@ -96,22 +80,22 @@ public class BucketWipe implements Runnable {
             long startTime = System.currentTimeMillis();
             bucketWipe.run();
             long duration = System.currentTimeMillis() - startTime;
-            double xput = (double) bucketWipe.getDeletedObjects() / duration * 1000;
+            double xput = (double) wipeResult.getObjectsDeleted() / duration * 1000;
 
             monitorRunning.set(false);
-            System.out.print("Objects deleted: " + fBucketWipe.getDeletedObjects() + "\r");
+            System.out.print("Objects deleted: " + wipeResult.getObjectsDeleted() + "\r");
             System.out.println();
 
             System.out.println(String.format("Duration: %d secs (%.2f/s)", duration / 1000, xput));
 
-            for (String error : bucketWipe.getErrors()) {
+            for (String error : wipeResult.getErrors()) {
                 System.out.println("Error: " + error);
             }
 
         } catch (Throwable t) {
             System.out.println("Error: " + t.getMessage());
             if (debug) t.printStackTrace();
-            if (bucketWipe != null) System.out.println("Last key before error: " + bucketWipe.getLastKey());
+            if (bucketWipe != null) System.out.println("Last key before error: " + wipeResult.getLastKey());
             printHelp();
             System.exit(2);
         }
@@ -156,10 +140,6 @@ public class BucketWipe implements Runnable {
     private String prefix;
     private int threads = DEFAULT_THREADS;
     private boolean keepBucket;
-    private EnhancedThreadPoolExecutor executor;
-    private AtomicLong deletedObjects = new AtomicLong(0);
-    private List<String> errors = Collections.synchronizedList(new ArrayList<String>());
-    private String lastKey;
     private boolean hierarchical;
     private String sourceListFile;
 
@@ -176,152 +156,34 @@ public class BucketWipe implements Runnable {
         config.withIdentity(accessKey).withSecretKey(secretKey);
         S3Client client = new S3JerseyClient(config);
 
-        executor = new EnhancedThreadPoolExecutor(threads, new LinkedBlockingDeque<Runnable>(QUEUE_SIZE));
+        BucketWipeOperations bucketWipeOperations = new BucketWipeOperations(client, threads);
 
         if (sourceListFile != null) {
-            deleteAllObjectsWithList(client, bucket, sourceListFile);
+            bucketWipeOperations.deleteAllObjectsWithList(bucket, sourceListFile, wipeResult);
         } else if (hierarchical) {
-            deleteAllObjectsHierarchical(client, bucket, prefix);
+            bucketWipeOperations.deleteAllObjectsHierarchical(bucket, prefix, wipeResult);
         } else if (client.getBucketVersioning(bucket).getStatus() == null) {
-            deleteAllObjects(client, bucket, prefix);
+            bucketWipeOperations.deleteAllObjects(bucket, prefix, wipeResult);
         } else {
-            deleteAllVersions(client, bucket, prefix);
+            bucketWipeOperations.deleteAllVersions(client, bucket, prefix, wipeResult);
         }
 
-        executor.shutdown();
-
         try {
-            if (prefix == null && !keepBucket) client.deleteBucket(bucket);
+            // Wait for operation to complete
+            wipeResult.getCompletedFuture().get();
+
+            if (prefix == null && !keepBucket) {
+                client.deleteBucket(bucket);
+            }
+        } catch (InterruptedException e) {
+            wipeResult.addError(e.getMessage());
+        } catch (ExecutionException e) {
+            wipeResult.addError(e.getMessage());
         } catch (S3Exception e) {
-            errors.add(e.getMessage());
+            wipeResult.addError(e.getMessage());
+        } finally {
+            bucketWipeOperations.shutdown();
         }
-    }
-
-    protected void deleteAllObjectsWithList(S3Client client, String bucket, String sourceListFile) {
-        List<Future> futures = new ArrayList<>();
-        try {
-            BufferedReader reader = new BufferedReader(new FileReader(sourceListFile));
-            try {
-                String key = reader.readLine();
-                while (key != null) {
-                    futures.add(executor.blockingSubmit(new DeleteObjectTask(client, bucket, RestUtil.urlDecode(key))));
-                    while (futures.size() > QUEUE_SIZE) {
-                        handleSingleFutures(futures, QUEUE_SIZE / 2);
-                    }
-                    key = reader.readLine();
-                }
-            } finally {
-                reader.close();
-            }
-        } catch (FileNotFoundException e) {
-            throw new RuntimeException("File not found", e);
-        } catch (IOException e) {
-            throw new RuntimeException("Error reading key list line", e);
-        }
-        handleSingleFutures(futures, futures.size());
-    }
-
-    protected void deleteAllObjectsHierarchical(S3Client client, String bucket, String prefix) {
-        List<Future> futures = new ArrayList<>();
-        ListObjectsResult listing = null;
-        ListObjectsRequest request = new ListObjectsRequest(bucket).withPrefix(prefix)
-                .withEncodingType(EncodingType.url).withDelimiter("/");
-        List<String> subPrefixes = new ArrayList<>();
-
-        do {
-            if (listing == null) {
-                listing = client.listObjects(request);
-            } else {
-                listing = client.listMoreObjects(listing);
-            }
-
-            for (S3Object object : listing.getObjects()) {
-                lastKey = object.getKey();
-                futures.add(executor.blockingSubmit(new DeleteObjectTask(client, bucket, RestUtil.urlDecode(object.getKey()))));
-            }
-
-            while (futures.size() > QUEUE_SIZE) {
-                handleSingleFutures(futures, QUEUE_SIZE / 2);
-            }
-
-            subPrefixes.addAll(listing.getCommonPrefixes());
-        } while (listing.isTruncated());
-
-        handleSingleFutures(futures, futures.size());
-
-        for(String subPrefix : subPrefixes) {
-            deleteAllObjectsHierarchical(client, bucket, subPrefix);
-        }
-    }
-
-    protected void deleteAllObjects(S3Client client, String bucket, String prefix) {
-        List<Future> futures = new ArrayList<>();
-        ListObjectsResult listing = null;
-        ListObjectsRequest request = new ListObjectsRequest(bucket).withPrefix(prefix).withEncodingType(EncodingType.url);
-        do {
-            if (listing == null) listing = client.listObjects(request);
-            else listing = client.listMoreObjects(listing);
-
-            for (S3Object object : listing.getObjects()) {
-                lastKey = object.getKey();
-                futures.add(executor.blockingSubmit(new DeleteObjectTask(client, bucket, object.getKey())));
-            }
-
-            while (futures.size() > QUEUE_SIZE) {
-                handleSingleFutures(futures, QUEUE_SIZE / 2);
-            }
-        } while (listing.isTruncated());
-
-        handleSingleFutures(futures, futures.size());
-
-    }
-
-    protected void deleteAllVersions(S3Client client, String bucket, String prefix) {
-        List<Future> futures = new ArrayList<>();
-        ListVersionsResult listing = null;
-        ListVersionsRequest request = new ListVersionsRequest(bucket).withPrefix(prefix).withEncodingType(EncodingType.url);
-        do {
-            if (listing != null) {
-                request.setKeyMarker(listing.getNextKeyMarker());
-                request.setVersionIdMarker(listing.getNextVersionIdMarker());
-            }
-            listing = client.listVersions(request);
-
-            for (AbstractVersion version : listing.getVersions()) {
-                lastKey = version.getKey() + " (version " + version.getVersionId() + ")";
-                futures.add(executor.blockingSubmit(new DeleteVersionTask(client, bucket,
-                        RestUtil.urlDecode(version.getKey()), version.getVersionId())));
-            }
-
-            while (futures.size() > QUEUE_SIZE) {
-                handleSingleFutures(futures, QUEUE_SIZE / 2);
-            }
-        } while (listing.isTruncated());
-
-        handleSingleFutures(futures, futures.size());
-    }
-
-    protected void handleSingleFutures(List<Future> futures, int num) {
-        for (Iterator<Future> i = futures.iterator(); i.hasNext() && num-- > 0; ) {
-            Future future = i.next();
-            i.remove();
-            try {
-                future.get();
-                deletedObjects.incrementAndGet();
-            } catch (InterruptedException e) {
-                errors.add(e.getMessage());
-            } catch (ExecutionException e) {
-                errors.add(e.getCause().getMessage());
-            }
-        }
-    }
-
-    public long getDeletedObjects() {
-        return deletedObjects.get();
-    }
-
-    public List<String> getErrors() {
-        return errors;
     }
 
     public URI getEndpoint() {
@@ -408,10 +270,6 @@ public class BucketWipe implements Runnable {
         this.hierarchical = hierarchical;
     }
 
-    public String getLastKey() {
-        return lastKey;
-    }
-
     public BucketWipe withEndpoint(URI endpoint) {
         setEndpoint(endpoint);
         return this;
@@ -455,56 +313,5 @@ public class BucketWipe implements Runnable {
     public BucketWipe withKeepBucket(boolean keepBucket) {
         setKeepBucket(keepBucket);
         return this;
-    }
-
-    protected class DeleteBatchObjectsTask implements Callable<DeleteObjectsResult> {
-        private S3Client client;
-        private DeleteObjectsRequest request;
-
-        public DeleteBatchObjectsTask(S3Client client, DeleteObjectsRequest request) {
-            this.client = client;
-            this.request = request;
-        }
-
-        @Override
-        public DeleteObjectsResult call() {
-            return client.deleteObjects(request);
-        }
-    }
-
-    protected class DeleteObjectTask implements Runnable {
-        private S3Client client;
-        private String bucket;
-        private String key;
-
-        public DeleteObjectTask(S3Client client, String bucket, String key) {
-            this.client = client;
-            this.bucket = bucket;
-            this.key = key;
-        }
-
-        @Override
-        public void run() {
-            client.deleteObject(bucket, key);
-        }
-    }
-
-    protected class DeleteVersionTask implements Runnable {
-        private S3Client client;
-        private String bucket;
-        private String key;
-        private String versionId;
-
-        public DeleteVersionTask(S3Client client, String bucket, String key, String versionId) {
-            this.client = client;
-            this.bucket = bucket;
-            this.key = key;
-            this.versionId = versionId;
-        }
-
-        @Override
-        public void run() {
-            client.deleteVersion(bucket, key, versionId);
-        }
     }
 }
