@@ -22,6 +22,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 
 /**
  * Provides multiple Asynchronous operations for deleting objects from buckets
@@ -32,15 +33,32 @@ import java.util.concurrent.Executors;
  * wipe operation (number of objects deleted etc) will be placed.  The operation is complete when the {@link BucketWipeResult#getCompletedFuture()}
  * completes.
  *
- * Each instance uses a fixed thread pool which effectively throttles the maximum number of concurrent operations.
+ * MaxConcurrent controls how many concurrent delete actions can be submitted at once, this allows an instance to handle deletion of millions of
+ * objects from a bucket without causing a runaway OOM condition.  Note that the maxConcurrent applies to ALL actions within an instance, for example
+ * if there are two callers they will both be competing to add new delete actions within the maxConcurrent limit.
  */
 public class BucketWipeOperations {
+    public static final int DEFAULT_THREADS = 32;
+    public static final int DEFAULT_MAX_CONCURRENT = 2000;
+
     private S3Client client;
     private ExecutorService executor;
+    private Semaphore submissionSemaphore;
 
-    public BucketWipeOperations(S3Client client, int numThreads) {
+    public BucketWipeOperations(S3Client client) {
+        this(client, DEFAULT_THREADS, DEFAULT_MAX_CONCURRENT);
+    }
+
+    /**
+     * Create an instance of the {@link BucketWipeOperations} class.  Instances are thread safe and can be used by multiple callers simulataniosly
+     * @param client
+     * @param numThreads
+     * @param maxConcurrent
+     */
+    public BucketWipeOperations(S3Client client, int numThreads, int maxConcurrent) {
         this.client = client;
         this.executor = Executors.newFixedThreadPool(numThreads);
+        this.submissionSemaphore = new Semaphore(maxConcurrent);
     }
 
     public void shutdown() {
@@ -54,7 +72,7 @@ public class BucketWipeOperations {
      * @param sourceListFile filepath of the containing the object keys.  Each line in the file represents an object key
      * @param result asynchronous result of the operation
      */
-    public void deleteAllObjectsWithList(String bucket, String sourceListFile, BucketWipeResult result) {
+    public void deleteAllObjectsWithList(String bucket, String sourceListFile, BucketWipeResult result) throws InterruptedException {
         try {
             BufferedReader reader = new BufferedReader(new FileReader(sourceListFile));
             try {
@@ -83,7 +101,7 @@ public class BucketWipeOperations {
      * @param prefix key prefix of objects to be deleted
      * @param result the asynchronous result of the operation
      */
-    protected void deleteAllObjectsHierarchical(String bucket, String prefix, BucketWipeResult result) {
+    protected void deleteAllObjectsHierarchical(String bucket, String prefix, BucketWipeResult result) throws InterruptedException {
         ListObjectsResult listing = null;
         ListObjectsRequest request = new ListObjectsRequest(bucket).withPrefix(prefix)
             .withEncodingType(EncodingType.url).withDelimiter("/");
@@ -118,7 +136,7 @@ public class BucketWipeOperations {
      * @param prefix key prefix of objects to be deleted
      * @param result the asynchronous result of the operation
      */
-    public void deleteAllObjects(String bucket, String prefix, BucketWipeResult result) {
+    public void deleteAllObjects(String bucket, String prefix, BucketWipeResult result) throws InterruptedException {
         ListObjectsResult listing = null;
         ListObjectsRequest request = new ListObjectsRequest(bucket).withPrefix(prefix).withEncodingType(EncodingType.url);
         do {
@@ -142,7 +160,7 @@ public class BucketWipeOperations {
      * @param prefix key prefix of object versions to be deleted
      * @param result the asynchronous result of the operation
      */
-    public void deleteAllVersions(S3Client client, String bucket, String prefix, BucketWipeResult result) {
+    public void deleteAllVersions(S3Client client, String bucket, String prefix, BucketWipeResult result) throws InterruptedException {
         ListVersionsResult listing = null;
         ListVersionsRequest request = new ListVersionsRequest(bucket).withPrefix(prefix).withEncodingType(EncodingType.url);
         do {
@@ -163,7 +181,9 @@ public class BucketWipeOperations {
     }
 
     /** Submits a task to be executed recording the fact in the result.  The result is updated as the task completes */
-    private void submitTask(Runnable task, BucketWipeResult result) {
+    private void submitTask(Runnable task, BucketWipeResult result) throws InterruptedException {
+        submissionSemaphore.acquire();
+
         result.actionOutstanding();
         CompletableFuture.runAsync(task, executor)
             .exceptionally((e) -> {
@@ -172,6 +192,7 @@ public class BucketWipeOperations {
             })
             .thenRun(() -> {
                 result.actionComplete();
+                submissionSemaphore.release();
             });
     }
 

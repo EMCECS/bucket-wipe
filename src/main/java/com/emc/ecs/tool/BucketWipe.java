@@ -29,9 +29,10 @@ import java.net.URI;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-public class BucketWipe implements Runnable {
-    public static final int DEFAULT_THREADS = 32;
+import static com.emc.ecs.tool.BucketWipeOperations.DEFAULT_MAX_CONCURRENT;
+import static com.emc.ecs.tool.BucketWipeOperations.DEFAULT_THREADS;
 
+public class BucketWipe implements Runnable {
     public static void main(String[] args) throws Exception {
         boolean debug = false;
         final BucketWipe bucketWipe = new BucketWipe();
@@ -154,19 +155,18 @@ public class BucketWipe implements Runnable {
         config.withIdentity(accessKey).withSecretKey(secretKey);
         S3Client client = new S3JerseyClient(config);
 
-        BucketWipeOperations bucketWipeOperations = new BucketWipeOperations(client, threads);
-
-        if (sourceListFile != null) {
-            bucketWipeOperations.deleteAllObjectsWithList(bucket, sourceListFile, result);
-        } else if (hierarchical) {
-            bucketWipeOperations.deleteAllObjectsHierarchical(bucket, prefix, result);
-        } else if (client.getBucketVersioning(bucket).getStatus() == null) {
-            bucketWipeOperations.deleteAllObjects(bucket, prefix, result);
-        } else {
-            bucketWipeOperations.deleteAllVersions(client, bucket, prefix, result);
-        }
-
+        BucketWipeOperations bucketWipeOperations = new BucketWipeOperations(client, threads, DEFAULT_MAX_CONCURRENT);
         try {
+            if (sourceListFile != null) {
+                bucketWipeOperations.deleteAllObjectsWithList(bucket, sourceListFile, result);
+            } else if (hierarchical) {
+                bucketWipeOperations.deleteAllObjectsHierarchical(bucket, prefix, result);
+            } else if (client.getBucketVersioning(bucket).getStatus() == null) {
+                bucketWipeOperations.deleteAllObjects(bucket, prefix, result);
+            } else {
+                bucketWipeOperations.deleteAllVersions(client, bucket, prefix, result);
+            }
+
             // Wait for operation to complete
             result.getCompletedFuture().get();
 
