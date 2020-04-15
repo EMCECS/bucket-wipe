@@ -69,14 +69,14 @@ public class TestBucketWipe {
             BucketWipe bucketWipe = new BucketWipe().withEndpoint(endpoint).withAccessKey(accessKey).withSecretKey(secretKey);
             bucketWipe.withBucket(bucketName).run();
 
-            if (bucketWipe.getErrors().size() > 0) {
-                for (String error : bucketWipe.getErrors()) {
+            if (bucketWipe.getResult().getErrors().size() > 0) {
+                for (String error : bucketWipe.getResult().getErrors()) {
                     System.err.println(error);
                 }
             }
 
-            Assert.assertEquals(keys.length, bucketWipe.getDeletedObjects());
-            Assert.assertEquals(0, bucketWipe.getErrors().size());
+            Assert.assertEquals(keys.length, bucketWipe.getResult().getDeletedObjects());
+            Assert.assertEquals(0, bucketWipe.getResult().getErrors().size());
 
             try {
                 client.listObjects(bucketName);
@@ -141,14 +141,14 @@ public class TestBucketWipe {
             bucketWipe.setSourceListFile(file.getAbsolutePath());
             bucketWipe.withBucket(bucketName).run();
 
-            if (bucketWipe.getErrors().size() > 0) {
-                for (String error : bucketWipe.getErrors()) {
+            if (bucketWipe.getResult().getErrors().size() > 0) {
+                for (String error : bucketWipe.getResult().getErrors()) {
                     System.err.println(error);
                 }
             }
 
-            Assert.assertEquals(keys.length, bucketWipe.getDeletedObjects());
-            Assert.assertEquals(0, bucketWipe.getErrors().size());
+            Assert.assertEquals(keys.length, bucketWipe.getResult().getDeletedObjects());
+            Assert.assertEquals(0, bucketWipe.getResult().getErrors().size());
 
             try {
                 client.listObjects(bucketName);
@@ -201,14 +201,14 @@ public class TestBucketWipe {
             bucketWipe.setKeepBucket(true);
             bucketWipe.withBucket(bucketName).run();
 
-            if (bucketWipe.getErrors().size() > 0) {
-                for (String error : bucketWipe.getErrors()) {
+            if (bucketWipe.getResult().getErrors().size() > 0) {
+                for (String error : bucketWipe.getResult().getErrors()) {
                     System.err.println(error);
                 }
             }
 
-            Assert.assertEquals(keys.length, bucketWipe.getDeletedObjects());
-            Assert.assertEquals(0, bucketWipe.getErrors().size());
+            Assert.assertEquals(keys.length, bucketWipe.getResult().getDeletedObjects());
+            Assert.assertEquals(0, bucketWipe.getResult().getErrors().size());
 
             try {
                 client.listObjects(bucketName);

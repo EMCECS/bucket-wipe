@@ -32,11 +32,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class BucketWipe implements Runnable {
     public static final int DEFAULT_THREADS = 32;
 
-    private static BucketWipeResult wipeResult = new BucketWipeResult();
-
     public static void main(String[] args) throws Exception {
         boolean debug = false;
-        BucketWipe bucketWipe = null;
+        final BucketWipe bucketWipe = new BucketWipe();
         try {
             CommandLine line = new DefaultParser().parse(options(), args, true);
 
@@ -49,7 +47,6 @@ public class BucketWipe implements Runnable {
 
             if (line.getArgs().length == 0) throw new IllegalArgumentException("must specify a bucket");
 
-            bucketWipe = new BucketWipe();
             bucketWipe.setEndpoint(new URI(line.getOptionValue("e")));
             bucketWipe.setVhost(line.hasOption("vhost"));
             bucketWipe.setSmartClient(!line.hasOption("no-smart-client"));
@@ -67,7 +64,7 @@ public class BucketWipe implements Runnable {
             Thread statusThread = new Thread(() -> {
                 while (monitorRunning.get()) {
                     try {
-                        System.out.print("Objects deleted: " + wipeResult.getObjectsDeleted() + "\r");
+                        System.out.print("Objects deleted: " + bucketWipe.getResult().getDeletedObjects() + "\r");
                         Thread.sleep(500);
                     } catch (InterruptedException e) {
                         // ignore
@@ -80,22 +77,22 @@ public class BucketWipe implements Runnable {
             long startTime = System.currentTimeMillis();
             bucketWipe.run();
             long duration = System.currentTimeMillis() - startTime;
-            double xput = (double) wipeResult.getObjectsDeleted() / duration * 1000;
+            double xput = (double) bucketWipe.getResult().getDeletedObjects() / duration * 1000;
 
             monitorRunning.set(false);
-            System.out.print("Objects deleted: " + wipeResult.getObjectsDeleted() + "\r");
+            System.out.print("Objects deleted: " + bucketWipe.getResult().getDeletedObjects() + "\r");
             System.out.println();
 
             System.out.println(String.format("Duration: %d secs (%.2f/s)", duration / 1000, xput));
 
-            for (String error : wipeResult.getErrors()) {
+            for (String error : bucketWipe.getResult().getErrors()) {
                 System.out.println("Error: " + error);
             }
 
         } catch (Throwable t) {
             System.out.println("Error: " + t.getMessage());
             if (debug) t.printStackTrace();
-            if (bucketWipe != null) System.out.println("Last key before error: " + wipeResult.getLastKey());
+            if (bucketWipe != null) System.out.println("Last key before error: " + bucketWipe.getResult().getLastKey());
             printHelp();
             System.exit(2);
         }
@@ -142,6 +139,7 @@ public class BucketWipe implements Runnable {
     private boolean keepBucket;
     private boolean hierarchical;
     private String sourceListFile;
+    private BucketWipeResult result = new BucketWipeResult();
 
     @Override
     public void run() {
@@ -159,35 +157,35 @@ public class BucketWipe implements Runnable {
         BucketWipeOperations bucketWipeOperations = new BucketWipeOperations(client, threads);
 
         if (sourceListFile != null) {
-            bucketWipeOperations.deleteAllObjectsWithList(bucket, sourceListFile, wipeResult);
+            bucketWipeOperations.deleteAllObjectsWithList(bucket, sourceListFile, result);
         } else if (hierarchical) {
-            bucketWipeOperations.deleteAllObjectsHierarchical(bucket, prefix, wipeResult);
+            bucketWipeOperations.deleteAllObjectsHierarchical(bucket, prefix, result);
         } else if (client.getBucketVersioning(bucket).getStatus() == null) {
-            bucketWipeOperations.deleteAllObjects(bucket, prefix, wipeResult);
+            bucketWipeOperations.deleteAllObjects(bucket, prefix, result);
         } else {
-            bucketWipeOperations.deleteAllVersions(client, bucket, prefix, wipeResult);
+            bucketWipeOperations.deleteAllVersions(client, bucket, prefix, result);
         }
 
         try {
             // Wait for operation to complete
-            wipeResult.getCompletedFuture().get();
+            result.getCompletedFuture().get();
 
             if (prefix == null && !keepBucket) {
                 client.deleteBucket(bucket);
             }
         } catch (InterruptedException e) {
-            wipeResult.addError(e.getMessage());
+            result.addError(e.getMessage());
         } catch (ExecutionException e) {
-            wipeResult.addError(e.getMessage());
+            result.addError(e.getMessage());
         } catch (S3Exception e) {
-            wipeResult.addError(e.getMessage());
+            result.addError(e.getMessage());
         } finally {
             bucketWipeOperations.shutdown();
         }
     }
 
-    public URI getEndpoint() {
-        return endpoint;
+    public BucketWipeResult getResult() {
+        return result;
     }
 
     public void setEndpoint(URI endpoint) {

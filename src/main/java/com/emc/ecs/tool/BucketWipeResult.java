@@ -16,7 +16,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class BucketWipeResult {
     private final AtomicLong actionsOutstanding = new AtomicLong();
-    private final AtomicLong numberObjectsDeleted = new AtomicLong();
+    private final AtomicLong deletedObjects = new AtomicLong();
     private final AtomicBoolean allActionsSubmitted = new AtomicBoolean();
     private final CompletableFuture<Boolean> completedFuture = new CompletableFuture<>();
     private final List<String> errors = Collections.synchronizedList(new ArrayList<>());
@@ -34,8 +34,8 @@ public class BucketWipeResult {
         }
     }
 
-    public long getObjectsDeleted() {
-        return numberObjectsDeleted.get();
+    public long getDeletedObjects() {
+        return deletedObjects.get();
     }
 
 
@@ -52,7 +52,7 @@ public class BucketWipeResult {
     }
 
     public void actionComplete() {
-        numberObjectsDeleted.incrementAndGet();
+        deletedObjects.incrementAndGet();
         actionsOutstanding.decrementAndGet();
 
         completeFutureIfComplete();
