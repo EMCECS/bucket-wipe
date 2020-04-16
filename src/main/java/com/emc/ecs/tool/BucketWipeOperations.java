@@ -45,15 +45,18 @@ public class BucketWipeOperations {
     private ExecutorService executor;
     private Semaphore submissionSemaphore;
 
+    /**
+     * Default constructor that uses the {@link #DEFAULT_THREADS} number of threads and {@link #DEFAULT_MAX_CONCURRENT} max concurrency
+     */
     public BucketWipeOperations(S3Client client) {
         this(client, DEFAULT_THREADS, DEFAULT_MAX_CONCURRENT);
     }
 
     /**
-     * Create an instance of the {@link BucketWipeOperations} class.  Instances are thread safe and can be used by multiple callers simulataniosly
-     * @param client
-     * @param numThreads
-     * @param maxConcurrent
+     * Create an instance of the {@link BucketWipeOperations} class.  Instances are thread safe and can be used by multiple callers simultaneously
+     * @param client The pre-configured S3 client to use when contacting the S3 server
+     * @param numThreads Number of threads to use in the thread pool for  simultaneous actions
+     * @param maxConcurrent Total number of actions to be queued up at once.  New delete actions will be blocked until there is "space" in the queue
      */
     public BucketWipeOperations(S3Client client, int numThreads, int maxConcurrent) {
         this.client = client;
@@ -66,11 +69,12 @@ public class BucketWipeOperations {
     }
 
     /**
-     * Deletes all objects from the specified bucket that have keys specified in the {@param sourceListFile}
+     * Deletes all objects from the specified bucket that have keys specified in the sourceListFile
      *
      * @param bucket the target S3 Bucket
      * @param sourceListFile filepath of the containing the object keys.  Each line in the file represents an object key
      * @param result asynchronous result of the operation
+     * @throws InterruptedException if interrupted waiting for submission semaphore
      */
     public void deleteAllObjectsWithList(String bucket, String sourceListFile, BucketWipeResult result) throws InterruptedException {
         try {
@@ -100,6 +104,7 @@ public class BucketWipeOperations {
      * @param bucket the target bucket
      * @param prefix key prefix of objects to be deleted
      * @param result the asynchronous result of the operation
+     * @throws InterruptedException if interrupted waiting for submission semaphore
      */
     protected void deleteAllObjectsHierarchical(String bucket, String prefix, BucketWipeResult result) throws InterruptedException {
         ListObjectsResult listing = null;
@@ -135,6 +140,7 @@ public class BucketWipeOperations {
      * @param bucket the target bucket
      * @param prefix key prefix of objects to be deleted
      * @param result the asynchronous result of the operation
+     * @throws InterruptedException if interrupted waiting for submission semaphore
      */
     public void deleteAllObjects(String bucket, String prefix, BucketWipeResult result) throws InterruptedException {
         ListObjectsResult listing = null;
@@ -159,6 +165,7 @@ public class BucketWipeOperations {
      * @param bucket the target bucket
      * @param prefix key prefix of object versions to be deleted
      * @param result the asynchronous result of the operation
+     * @throws InterruptedException if interrupted waiting for submission semaphore
      */
     public void deleteAllVersions(S3Client client, String bucket, String prefix, BucketWipeResult result) throws InterruptedException {
         ListVersionsResult listing = null;
