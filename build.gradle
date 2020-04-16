@@ -19,7 +19,7 @@ ext.mainClass = 'com.emc.ecs.tool.BucketWipe'
 buildscript {
     repositories {
         jcenter {
-            url "http://jcenter.bintray.com/"
+            url "https://jcenter.bintray.com/"
         }
     }
     dependencies {
