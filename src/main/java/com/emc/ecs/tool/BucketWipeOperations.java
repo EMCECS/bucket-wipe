@@ -47,6 +47,7 @@ public class BucketWipeOperations {
 
     /**
      * Default constructor that uses the {@link #DEFAULT_THREADS} number of threads and {@link #DEFAULT_MAX_CONCURRENT} max concurrency
+     * @param client The pre-configured S3 client to use when contacting the S3 server
      */
     public BucketWipeOperations(S3Client client) {
         this(client, DEFAULT_THREADS, DEFAULT_MAX_CONCURRENT);
@@ -167,7 +168,7 @@ public class BucketWipeOperations {
      * @param result the asynchronous result of the operation
      * @throws InterruptedException if interrupted waiting for submission semaphore
      */
-    public void deleteAllVersions(S3Client client, String bucket, String prefix, BucketWipeResult result) throws InterruptedException {
+    public void deleteAllVersions(String bucket, String prefix, BucketWipeResult result) throws InterruptedException {
         ListVersionsResult listing = null;
         ListVersionsRequest request = new ListVersionsRequest(bucket).withPrefix(prefix).withEncodingType(EncodingType.url);
         do {

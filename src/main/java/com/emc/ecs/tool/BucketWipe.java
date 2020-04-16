@@ -164,7 +164,7 @@ public class BucketWipe implements Runnable {
             } else if (client.getBucketVersioning(bucket).getStatus() == null) {
                 bucketWipeOperations.deleteAllObjects(bucket, prefix, result);
             } else {
-                bucketWipeOperations.deleteAllVersions(client, bucket, prefix, result);
+                bucketWipeOperations.deleteAllVersions(bucket, prefix, result);
             }
 
             // Wait for operation to complete
