@@ -19,11 +19,11 @@ ext.mainClass = 'com.emc.ecs.tool.BucketWipe'
 buildscript {
     repositories {
         jcenter {
-            url "http://jcenter.bintray.com/"
+            url "https://jcenter.bintray.com/"
         }
     }
     dependencies {
-        classpath 'com.github.jengelman.gradle.plugins:shadow:1.2.3'
+        classpath 'com.github.jengelman.gradle.plugins:shadow:5.2.0'
     }
 }
 

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2016-2019 Dell Inc. or its subsidiaries.  All Rights Reserved.
  * <p>
  * Licensed under the Apache License, Version 2.0 (the "License").
@@ -328,6 +328,7 @@ public class BucketWipe implements Runnable {
                 handleSingleFutures(futures, QUEUE_SIZE / 2);
             }
             try {
+                // wait (don't peg a core with this loop)
                 Thread.sleep(500);
             } catch (InterruptedException e) {
                 // Ignore
@@ -699,7 +700,8 @@ public class BucketWipe implements Runnable {
             this.client = client;
             this.request = request;
         }
-        // implements methos in Callable
+
+        // implements method in Callable
         @Override
         public DeleteObjectsResult call() {
             return client.deleteObjects(request);
@@ -732,6 +734,7 @@ public class BucketWipe implements Runnable {
             this.client = client;
             this.id = id;
         }
+
         // implements method in Runable
         @Override
         public void run() {
@@ -744,6 +747,7 @@ public class BucketWipe implements Runnable {
 
         private ObjectPath filePath;
         private BucketWipe atmosWipe;
+
         // implements method in taskNode
         @Override
         protected TaskResult execute() throws Exception {
@@ -778,23 +782,20 @@ public class BucketWipe implements Runnable {
 
         private ObjectPath dirPath;
         private BucketWipe atmosWipe;
-        private Set<AtmosDeleteDirTask> parentDirs = new HashSet<AtmosDeleteDirTask>();
+        private Set<AtmosDeleteDirTask> parentDeleteTasks = new HashSet<AtmosDeleteDirTask>();
+
         // implements method in TaskNode
         @Override
         protected TaskResult execute() throws Exception {
 
             try {
 
-                // All entries in this directory will become parents of the child task
-                // that deletes the current directory entry after it's empty.
-                AtmosDeleteDirTask child = new AtmosDeleteDirTask();
-                // we add this directory as a parent to the child
-                child.addParent(this);
-                // add child to the graph as vertex and create edge to the parent
-                // to create directed dependency graph of subdirectories
-                child.addToGraph(atmosWipe.getGraph());
-                for (AtmosDeleteDirTask ch : parentDirs) {
-                    ch.addParent(child);
+                // create a task for deleting *this* directory after all children have been deleted.
+                AtmosDeleteDirTask myDelTask = new AtmosDeleteDirTask();
+                myDelTask.addParent(this);
+                myDelTask.addToGraph(atmosWipe.getGraph());
+                for (AtmosDeleteDirTask parentDelTask : parentDeleteTasks) {
+                    parentDelTask.addParent(myDelTask);
                 }
                 // list all entries in the directory by creating new list request
                 ListDirectoryRequest request = new ListDirectoryRequest().path(dirPath);
@@ -810,24 +811,20 @@ public class BucketWipe implements Runnable {
                     ObjectPath entryPath = new ObjectPath(dirPath, entry);
                     // if entry is a directory add the task to the graph
                     if (entry.isDirectory()) {
-                        AtmosListTask atmosListTask = new AtmosListTask();
-                        // set path to the directory
-                        atmosListTask.setDirPath(entryPath);
-                        atmosListTask.setAtmosDelete(atmosWipe);
-                        // this directory will be the parent of a directory entry in the list
-                        atmosListTask.addParent(this);
-                        // add entry directory to the graph
-                        atmosListTask.addToGraph(atmosWipe.getGraph());
-                        // add parent to the child class
-                        child.addParent(atmosListTask);
+                        AtmosListTask childListTask = new AtmosListTask();
+
+                        childListTask.setDirPath(entryPath);
+                        childListTask.setAtmosDelete(atmosWipe);
+                        childListTask.addParent(this);
+
+                        childListTask.addToGraph(atmosWipe.getGraph());
+                        myDelTask.addParent(childListTask);
                         // If we have any other children to depend on, add them
-                        for (AtmosDeleteDirTask ch : parentDirs) {
-                            ch.addParent(atmosListTask);
-                            atmosListTask.parentDirs.add(ch);
+                        for (AtmosDeleteDirTask parentDelTask : parentDeleteTasks) {
+                            parentDelTask.addParent(childListTask);
+                            childListTask.parentDeleteTasks.add(parentDelTask);
                         }
-                        atmosListTask.parentDirs.add(child);
-                     // if the entry is a file create file delete task add it to the graph
-                     // and also add parent
+                        childListTask.parentDeleteTasks.add(myDelTask);
                     } else {
                         // create new file delete task
                         AtmosDeleteFileTask deleteFileTask = new AtmosDeleteFileTask();
@@ -839,7 +836,7 @@ public class BucketWipe implements Runnable {
                         atmosWipe.increment(entryPath);
                         // add file delete task to the graph
                         deleteFileTask.addToGraph(atmosWipe.getGraph());
-                        child.addParent(deleteFileTask);
+                        myDelTask.addParent(deleteFileTask);
                     }
                 }
 
@@ -921,10 +918,11 @@ public class BucketWipe implements Runnable {
         protected SimpleDirectedGraph<TaskNode, DefaultEdge> graph;
         private boolean queued;
 
-         // constructor creates new hashset of taskNodes
+        // constructor creates new hashset of taskNodes
         public TaskNode() {
             this.parentTasks = new HashSet<TaskNode>();
         }
+
         // methos adds parent to parent tasks set
         public void addParent(TaskNode parent) {
             parentTasks.add(parent);
@@ -934,6 +932,7 @@ public class BucketWipe implements Runnable {
                 }
             }
         }
+
         // this method adds taskNode to graph as a vertex and also creates edge directed to it
         public void addToGraph(SimpleDirectedGraph<TaskNode, DefaultEdge> graph) {
             this.graph = graph;
@@ -949,6 +948,7 @@ public class BucketWipe implements Runnable {
                 }
             }
         }
+
         // this call executes the taskNode and removes it from the graph upon execution
         @Override
         public TaskResult call() throws Exception {
@@ -968,6 +968,7 @@ public class BucketWipe implements Runnable {
 
             return result;
         }
+
         // this method removes current vertex from the graph
         private void removeFromGraph() {
             if (graph == null) {
@@ -977,6 +978,7 @@ public class BucketWipe implements Runnable {
                 graph.removeVertex(this);
             }
         }
+
         // this execute method is implemented in AtmosListTask.AtmosDeleteDirTask,
         // AtmosListTask, and AtmosDeleteFileTask
         protected abstract TaskResult execute() throws Exception;
@@ -989,6 +991,7 @@ public class BucketWipe implements Runnable {
             return queued;
         }
     }
+
     // this class is used to return Task execution result
     protected class TaskResult {
         private boolean successful;
