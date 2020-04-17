@@ -12,9 +12,14 @@
  * express or implied. See the License for the specific language governing
  * permissions and limitations under the License.
  */
-group 'com.emc.tools'
-version '1.10'
+group 'com.emc.ecs'
+
 ext.mainClass = 'com.emc.ecs.tool.BucketWipe'
+ext.githubProjectName = project.name
+ext.scmUrl = "https://github.com/EMCECS/${githubProjectName}"
+ext.scmConnection = "scm:git@github.com:EMCECS/${githubProjectName}.git"
+ext.licenseName = 'Apache License 2.0'
+ext.licenseUrl = 'http://www.apache.org/licenses/'
 
 buildscript {
     repositories {
@@ -23,7 +28,8 @@ buildscript {
         }
     }
     dependencies {
-        classpath 'com.github.jengelman.gradle.plugins:shadow:1.2.3'
+        classpath 'com.github.jengelman.gradle.plugins:shadow:5.2.0'
+        classpath 'org.ajoberstar:gradle-git:1.7.2'
     }
 }
 
@@ -32,8 +38,75 @@ apply plugin: 'eclipse'
 apply plugin: 'java'
 apply plugin: 'distribution'
 apply plugin: 'com.github.johnrengelman.shadow'
+apply plugin: 'signing'
+apply plugin: 'maven'
+apply plugin: 'base'
+apply plugin: 'org.ajoberstar.grgit'
+apply plugin: 'org.ajoberstar.release-opinion'
 
 defaultTasks 'distZip'
+
+configurations {
+    jars.extendsFrom(signatures)
+}
+
+// This is here because since Gradle 4, we cannot use the console to read passwords interactively
+// However, this method requires X, which is most often unavailable when actually publishing a release
+// This will be removed if an alternative is found
+import groovy.swing.SwingBuilder
+def inputPassword(String dialogTitle, String dialogMessage) {
+    while (true) {
+        def enteredPassword = null
+        new SwingBuilder().edt {
+            dialog(
+                    modal: true, //Otherwise the build will continue running
+                    title: dialogTitle,
+                    alwaysOnTop: true,
+                    resizable: false,
+                    locationRelativeTo: null, //Place dialog in center of the screen
+                    pack: true, //We need to pack the dialog (so it will take the size of its children
+                    show: true
+            ) {
+                vbox { //Put everything below each other
+                    label(text: dialogMessage)
+                    input = passwordField()
+                    button(defaultButton: true, text: 'OK', actionPerformed: {
+                        enteredPassword = new String(input.password)
+                        dispose();
+                    })
+                }
+            }
+        }
+        return enteredPassword
+    }
+}
+
+gradle.taskGraph.whenReady { taskGraph ->
+    if (taskGraph.allTasks.any { it instanceof Sign }) {
+        if (!project.hasProperty('signingPass')) {
+            ext.signingPass = inputPassword('Signing Key Passphrase', 'Passphrase: ')
+            ext.sonatypePass = inputPassword('Sonatype Password', 'Password: ')
+        }
+        ext.'signing.keyId' = signingKeyId
+        ext.'signing.secretKeyRingFile' = signingSecretKeyRingFile
+        ext.'signing.password' = ext.signingPass
+        uploadJars.repositories.mavenDeployer.repository.authentication.password = ext.sonatypePass
+    }
+    if (taskGraph.hasTask(':release')) {
+        if (!project.hasProperty('githubPassword')) {
+            ext.githubPassword = inputPassword('Github Password', 'Password: ')
+        }
+        System.setProperty('org.ajoberstar.grgit.auth.username', gitUsername)
+        System.setProperty('org.ajoberstar.grgit.auth.password', ext.githubPassword)
+    }
+}
+
+[compileJava, compileTestJava]*.options*.encoding = 'UTF-8'
+
+compileJava {
+    sourceCompatibility = 1.8
+    targetCompatibility = 1.8
+}
 
 repositories {
     mavenCentral()
@@ -46,9 +119,53 @@ dependencies {
     testCompile 'junit:junit:4.12'
 }
 
-compileJava {
-    sourceCompatibility = 1.8
-    targetCompatibility = 1.8
+def projectPom = {
+    project {
+        name project.name
+        description project.description
+        url 'https://community.emc.com/community/products/vipr#developer'
+
+        scm {
+            url scmUrl
+            connection scmConnection
+            developerConnection scmConnection
+        }
+
+        licenses {
+            license {
+                name licenseName
+                url licenseUrl
+                distribution 'repo'
+            }
+        }
+
+        developers {
+            developer {
+                id 'EMCECS'
+                name 'Dell EMC ECS'
+            }
+        }
+    }
+}
+
+task writePom {
+    ext.pomFile = file("$buildDir/pom.xml")
+    outputs.file pomFile
+    doLast {
+        pom(projectPom).writeTo pomFile
+    }
+}
+
+jar {
+    doFirst {
+        manifest {
+            attributes 'Implementation-Version': project.version,
+                    'Class-Path': configurations.runtime.collect { it.getName() }.join(' ')
+        }
+    }
+    into("META-INF/maven/$project.group/$project.name") {
+        from writePom
+    }
 }
 
 javadoc {
@@ -60,7 +177,7 @@ shadowJar {
         classifier ''
         manifest {
             attributes 'Main-Class': mainClass,
-                    'Implementation-Version': version,
+                    'Implementation-Version': project.version,
                     'Class-Path': { configurations.runtime.collect { it.getName() }.join(' ') }
         }
         mergeServiceFiles()
@@ -71,10 +188,17 @@ task javadocJar(type: Jar, dependsOn: javadoc) {
     classifier = 'javadoc'
     from "${docsDir}/javadoc"
 }
+javadocJar.dependsOn javadoc
 
 task sourcesJar(type: Jar) {
     classifier = 'sources'
     from sourceSets.main.allSource
+}
+
+artifacts {
+    jars jar
+    jars javadocJar
+    jars sourcesJar
 }
 
 distributions {
@@ -97,3 +221,23 @@ distributions {
     }
 }
 
+signing {
+    required { gradle.taskGraph.hasTask(':uploadJars') }
+    sign configurations.jars
+}
+
+uploadJars {
+    repositories {
+        mavenDeployer {
+            beforeDeployment { deployment -> signing.signPom(deployment) }
+
+            repository(url: 'https://oss.sonatype.org/service/local/staging/deploy/maven2/') {
+                authentication(userName: sonatypeUsername, password: '')
+            }
+
+            pom projectPom
+        }
+    }
+}
+
+tasks.release.dependsOn test, uploadJars, distZip
