@@ -27,7 +27,6 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
 import java.net.URI;
-import java.rmi.server.ExportException;
 
 public class TestBucketWipe {
     private String accessKey;
@@ -41,14 +40,20 @@ public class TestBucketWipe {
         endpoint = new URI(TestConfig.getPropertyNotEmpty(TestProperties.S3_ENDPOINT));
     }
 
+    S3Config getS3Config() {
+        S3Config s3Config = new S3Config(Protocol.valueOf(endpoint.getScheme().toUpperCase()), endpoint.getHost())
+                .withIdentity(accessKey).withSecretKey(secretKey)
+                .withSmartClient(false);
+        if (endpoint.getPort() > 0) s3Config.setPort(endpoint.getPort());
+        return s3Config;
+    }
+
     @Test
     public void testUrlEncoding() {
 
         // create bucket
         String bucketName = "test-bucket-wipe";
-        S3Client client = new S3JerseyClient(new S3Config(Protocol.valueOf(endpoint.getScheme().toUpperCase()),
-                // disable smart-client to work around STORAGE-3299
-                endpoint.getHost()).withIdentity(accessKey).withSecretKey(secretKey).withSmartClient(false));
+        S3Client client = new S3JerseyClient(getS3Config());
         client.createBucket(bucketName);
         boolean bucketExists = true;
 
@@ -66,7 +71,8 @@ public class TestBucketWipe {
             }
 
             // delete the bucket with bucket-wipe
-            BucketWipe bucketWipe = new BucketWipe().withEndpoint(endpoint).withAccessKey(accessKey).withSecretKey(secretKey);
+            BucketWipe bucketWipe = new BucketWipe().withEndpoint(endpoint).withSmartClient(false)
+                    .withAccessKey(accessKey).withSecretKey(secretKey);
             bucketWipe.withBucket(bucketName).run();
 
             if (bucketWipe.getResult().getErrors().size() > 0) {
@@ -102,9 +108,7 @@ public class TestBucketWipe {
     @Test
     public void testWithSourceList() throws Exception {
         String bucketName = "test-bucket-wipe";
-        S3Client client = new S3JerseyClient(new S3Config(Protocol.valueOf(endpoint.getScheme().toUpperCase()),
-                // disable smart-client to work around STORAGE-3299
-                endpoint.getHost()).withIdentity(accessKey).withSecretKey(secretKey).withSmartClient(false));
+        S3Client client = new S3JerseyClient(getS3Config());
         client.createBucket(bucketName);
 
         boolean bucketExists = true;
@@ -128,7 +132,7 @@ public class TestBucketWipe {
                     String key = keys[i];
                     client.putObject(bucketName, key, new byte[]{}, null);
                     bw.write(key);
-                    if (i < keys.length -1)
+                    if (i < keys.length - 1)
                         bw.write("\n");
                 }
             } finally {
@@ -137,7 +141,8 @@ public class TestBucketWipe {
             }
 
             // wipe bucket, but don't delete
-            BucketWipe bucketWipe = new BucketWipe().withEndpoint(endpoint).withAccessKey(accessKey).withSecretKey(secretKey);
+            BucketWipe bucketWipe = new BucketWipe().withEndpoint(endpoint).withSmartClient(false)
+                    .withAccessKey(accessKey).withSecretKey(secretKey);
             bucketWipe.setSourceListFile(file.getAbsolutePath());
             bucketWipe.withBucket(bucketName).run();
 
@@ -175,9 +180,7 @@ public class TestBucketWipe {
     public void testKeepBucket() {
         // create bucket
         String bucketName = "test-bucket-wipe";
-        S3Client client = new S3JerseyClient(new S3Config(Protocol.valueOf(endpoint.getScheme().toUpperCase()),
-                // disable smart-client to work around STORAGE-3299
-                endpoint.getHost()).withIdentity(accessKey).withSecretKey(secretKey).withSmartClient(false));
+        S3Client client = new S3JerseyClient(getS3Config());
         client.createBucket(bucketName);
 
         boolean bucketExists = true;
@@ -197,7 +200,8 @@ public class TestBucketWipe {
             }
 
             // wipe bucket, but don't delete
-            BucketWipe bucketWipe = new BucketWipe().withEndpoint(endpoint).withAccessKey(accessKey).withSecretKey(secretKey);
+            BucketWipe bucketWipe = new BucketWipe().withEndpoint(endpoint).withSmartClient(false)
+                    .withAccessKey(accessKey).withSecretKey(secretKey);
             bucketWipe.setKeepBucket(true);
             bucketWipe.withBucket(bucketName).run();
 
