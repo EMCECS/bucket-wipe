@@ -13,13 +13,13 @@
          comment these out if you want full debug logs (will be huge)
          WARNING: at debug level, if the following lines are not active,
                   object *data* will be logged in byte-hex ([0x9a]...) -->
-        <Logger name="org.apache.http" level="info" additivity="false">
+        <Logger name="org.apache.http" additivity="false">
             <AppenderRef ref="infoAppender"/>
         </Logger>
-        <Logger name="com.sun.jersey.api.client" level="info" additivity="false">
+        <Logger name="com.sun.jersey.api.client" additivity="false">
             <AppenderRef ref="infoAppender"/>
         </Logger>
-        <Logger name="com.amazonaws.request" level="info" additivity="false">
+        <Logger name="com.amazonaws.request" additivity="false">
             <AppenderRef ref="infoAppender"/>
         </Logger>
 
