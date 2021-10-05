@@ -2,12 +2,10 @@ package com.emc.ecs.tool;
 
 import com.emc.object.s3.S3Client;
 import com.emc.object.s3.bean.AbstractVersion;
-import com.emc.object.s3.bean.DeleteObjectsResult;
 import com.emc.object.s3.bean.EncodingType;
 import com.emc.object.s3.bean.ListObjectsResult;
 import com.emc.object.s3.bean.ListVersionsResult;
 import com.emc.object.s3.bean.S3Object;
-import com.emc.object.s3.request.DeleteObjectsRequest;
 import com.emc.object.s3.request.ListObjectsRequest;
 import com.emc.object.s3.request.ListVersionsRequest;
 
@@ -17,7 +15,6 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -40,9 +37,9 @@ public class BucketWipeOperations {
     public static final int DEFAULT_THREADS = 32;
     public static final int DEFAULT_MAX_CONCURRENT = 2000;
 
-    private S3Client client;
-    private ExecutorService executor;
-    private Semaphore submissionSemaphore;
+    private final S3Client client;
+    private final ExecutorService executor;
+    private final Semaphore submissionSemaphore;
 
     /**
      * Default constructor that uses the {@link #DEFAULT_THREADS} number of threads and {@link #DEFAULT_MAX_CONCURRENT} max concurrency
@@ -78,15 +75,13 @@ public class BucketWipeOperations {
      */
     public void deleteAllObjectsWithList(String bucket, String sourceListFile, BucketWipeResult result) throws InterruptedException {
         try {
-            BufferedReader reader = new BufferedReader(new FileReader(sourceListFile));
-            try {
+            try (BufferedReader reader = new BufferedReader(new FileReader(sourceListFile))) {
                 String key = reader.readLine();
                 while (key != null) {
                     submitTask(new DeleteObjectTask(client, bucket, key), result);
                     key = reader.readLine();
                 }
             } finally {
-                reader.close();
                 result.allActionsSubmitted();
             }
         } catch (FileNotFoundException e) {
@@ -203,10 +198,10 @@ public class BucketWipeOperations {
             });
     }
 
-    protected class DeleteObjectTask implements Runnable {
-        private S3Client client;
-        private String bucket;
-        private String key;
+    protected static class DeleteObjectTask implements Runnable {
+        private final S3Client client;
+        private final String bucket;
+        private final String key;
 
         public DeleteObjectTask(S3Client client, String bucket, String key) {
             this.client = client;
@@ -220,11 +215,11 @@ public class BucketWipeOperations {
         }
     }
 
-    protected class DeleteVersionTask implements Runnable {
-        private S3Client client;
-        private String bucket;
-        private String key;
-        private String versionId;
+    protected static class DeleteVersionTask implements Runnable {
+        private final S3Client client;
+        private final String bucket;
+        private final String key;
+        private final String versionId;
 
         public DeleteVersionTask(S3Client client, String bucket, String key, String versionId) {
             this.client = client;
@@ -236,21 +231,6 @@ public class BucketWipeOperations {
         @Override
         public void run() {
             client.deleteVersion(bucket, key, versionId);
-        }
-    }
-
-    protected class DeleteBatchObjectsTask implements Callable<DeleteObjectsResult> {
-        private S3Client client;
-        private DeleteObjectsRequest request;
-
-        public DeleteBatchObjectsTask(S3Client client, DeleteObjectsRequest request) {
-            this.client = client;
-            this.request = request;
-        }
-
-        @Override
-        public DeleteObjectsResult call() {
-            return client.deleteObjects(request);
         }
     }
 }
