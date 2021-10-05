@@ -1,11 +1,9 @@
 package com.emc.ecs.tool;
 
 import com.emc.object.s3.S3Client;
-import com.emc.object.s3.bean.AbstractVersion;
-import com.emc.object.s3.bean.EncodingType;
-import com.emc.object.s3.bean.ListObjectsResult;
-import com.emc.object.s3.bean.ListVersionsResult;
-import com.emc.object.s3.bean.S3Object;
+import com.emc.object.s3.bean.*;
+import com.emc.object.s3.request.AbortMultipartUploadRequest;
+import com.emc.object.s3.request.ListMultipartUploadsRequest;
 import com.emc.object.s3.request.ListObjectsRequest;
 import com.emc.object.s3.request.ListVersionsRequest;
 
@@ -89,8 +87,6 @@ public class BucketWipeOperations {
         } catch (IOException e) {
             throw new RuntimeException("Error reading key list line", e);
         }
-
-        result.allActionsSubmitted();
     }
 
     /**
@@ -125,8 +121,6 @@ public class BucketWipeOperations {
         for(String subPrefix : subPrefixes) {
             deleteAllObjectsHierarchical(bucket, subPrefix, result);
         }
-
-        result.allActionsSubmitted();
     }
 
     /**
@@ -150,8 +144,6 @@ public class BucketWipeOperations {
             }
 
         } while (listing.isTruncated());
-
-        result.allActionsSubmitted();
     }
 
     /**
@@ -178,8 +170,24 @@ public class BucketWipeOperations {
             }
 
         } while (listing.isTruncated());
+    }
 
-        result.allActionsSubmitted();
+    public void deleteAllMpus(String bucket, BucketWipeResult result) throws InterruptedException {
+        ListMultipartUploadsResult listing = null;
+        ListMultipartUploadsRequest request = new ListMultipartUploadsRequest(bucket).withEncodingType(EncodingType.url);
+        do {
+            if (listing != null) {
+                request.setKeyMarker(listing.getNextKeyMarker());
+                request.setUploadIdMarker(listing.getNextUploadIdMarker());
+            }
+            listing = client.listMultipartUploads(request);
+
+            for (Upload upload : listing.getUploads()) {
+                result.setLastKey(upload.getKey() + " (uploadId " + upload.getUploadId() + ")");
+                submitTask(new DeleteMpuTask(client, bucket, upload.getKey(), upload.getUploadId()), result);
+            }
+
+        } while (listing.isTruncated());
     }
 
     /** Submits a task to be executed recording the fact in the result.  The result is updated as the task completes */
@@ -231,6 +239,25 @@ public class BucketWipeOperations {
         @Override
         public void run() {
             client.deleteVersion(bucket, key, versionId);
+        }
+    }
+
+    protected static class DeleteMpuTask implements Runnable {
+        private final S3Client client;
+        private final String bucket;
+        private final String key;
+        private final String uploadId;
+
+        public DeleteMpuTask(S3Client client, String bucket, String key, String uploadId) {
+            this.client = client;
+            this.bucket = bucket;
+            this.key = key;
+            this.uploadId = uploadId;
+        }
+
+        @Override
+        public void run() {
+            client.abortMultipartUpload(new AbortMultipartUploadRequest(bucket, key, uploadId));
         }
     }
 }

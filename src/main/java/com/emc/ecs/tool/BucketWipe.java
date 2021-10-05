@@ -19,11 +19,7 @@ import com.emc.object.s3.S3Client;
 import com.emc.object.s3.S3Config;
 import com.emc.object.s3.S3Exception;
 import com.emc.object.s3.jersey.S3JerseyClient;
-import org.apache.commons.cli.CommandLine;
-import org.apache.commons.cli.DefaultParser;
-import org.apache.commons.cli.HelpFormatter;
-import org.apache.commons.cli.Option;
-import org.apache.commons.cli.Options;
+import org.apache.commons.cli.*;
 
 import java.net.URI;
 import java.util.concurrent.ExecutionException;
@@ -57,7 +53,8 @@ public class BucketWipe implements Runnable {
             bucketWipe.setSourceListFile(line.getOptionValue("l"));
             if (line.hasOption("p")) bucketWipe.setPrefix(line.getOptionValue("p"));
             if (line.hasOption("t")) bucketWipe.setThreads(Integer.parseInt(line.getOptionValue("t")));
-            if(line.hasOption("hier")) bucketWipe.setHierarchical(true);
+            if (line.hasOption("hier")) bucketWipe.setHierarchical(true);
+            if (line.hasOption("delete-mpus")) bucketWipe.setDeleteMpus(true);
             bucketWipe.setBucket(line.getArgs()[0]);
 
             // update the user
@@ -126,6 +123,8 @@ public class BucketWipe implements Runnable {
         options.addOption(Option.builder().longOpt("keep-bucket").desc("do not delete the bucket when done").build());
         options.addOption(Option.builder("l").longOpt("key-list").hasArg().argName("file")
                 .desc("instead of listing bucket, delete objects matched in source file key list").build());
+        options.addOption(Option.builder().longOpt("delete-mpus").desc("incomplete MPUs will prevent the " +
+                "bucket from being deleted. use this option to clean up all incomplete MPUs").build());
         return options;
     }
 
@@ -140,6 +139,7 @@ public class BucketWipe implements Runnable {
     private boolean keepBucket;
     private boolean hierarchical;
     private String sourceListFile;
+    private boolean deleteMpus;
     private BucketWipeResult result = new BucketWipeResult();
 
     @Override
@@ -166,6 +166,10 @@ public class BucketWipe implements Runnable {
             } else {
                 bucketWipeOperations.deleteAllVersions(bucket, prefix, result);
             }
+
+            if (deleteMpus) bucketWipeOperations.deleteAllMpus(bucket, result);
+
+            result.allActionsSubmitted();
 
             // Wait for operation to complete
             result.getCompletedFuture().get();
@@ -268,6 +272,14 @@ public class BucketWipe implements Runnable {
         this.hierarchical = hierarchical;
     }
 
+    public boolean isDeleteMpus() {
+        return deleteMpus;
+    }
+
+    public void setDeleteMpus(boolean deleteMpus) {
+        this.deleteMpus = deleteMpus;
+    }
+
     public BucketWipe withEndpoint(URI endpoint) {
         setEndpoint(endpoint);
         return this;
@@ -285,6 +297,11 @@ public class BucketWipe implements Runnable {
 
     public BucketWipe withAccessKey(String accessKey) {
         setAccessKey(accessKey);
+        return this;
+    }
+
+    public BucketWipe withSourceListFile(String sourceListFile) {
+        setSourceListFile(sourceListFile);
         return this;
     }
 
@@ -310,6 +327,16 @@ public class BucketWipe implements Runnable {
 
     public BucketWipe withKeepBucket(boolean keepBucket) {
         setKeepBucket(keepBucket);
+        return this;
+    }
+
+    public BucketWipe withHierarchical(boolean hierarchical) {
+        setHierarchical(hierarchical);
+        return this;
+    }
+
+    public BucketWipe withDeleteMpus(boolean deleteMpus) {
+        setDeleteMpus(deleteMpus);
         return this;
     }
 }
