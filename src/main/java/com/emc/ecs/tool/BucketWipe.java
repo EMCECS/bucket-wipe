@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2016-2019 Dell Inc. or its subsidiaries.  All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License").
@@ -29,7 +29,7 @@ import static com.emc.ecs.tool.BucketWipeOperations.DEFAULT_MAX_CONCURRENT;
 import static com.emc.ecs.tool.BucketWipeOperations.DEFAULT_THREADS;
 
 public class BucketWipe implements Runnable {
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) {
         boolean debug = false;
         final BucketWipe bucketWipe = new BucketWipe();
         try {
@@ -81,7 +81,7 @@ public class BucketWipe implements Runnable {
             System.out.print("Objects deleted: " + bucketWipe.getResult().getDeletedObjects() + "\r");
             System.out.println();
 
-            System.out.println(String.format("Duration: %d secs (%.2f/s)", duration / 1000, xput));
+            System.out.printf("Duration: %d secs (%.2f/s)%n", duration / 1000, xput);
 
             for (String error : bucketWipe.getResult().getErrors()) {
                 System.out.println("Error: " + error);
@@ -90,7 +90,7 @@ public class BucketWipe implements Runnable {
         } catch (Throwable t) {
             System.out.println("Error: " + t.getMessage());
             if (debug) t.printStackTrace();
-            if (bucketWipe != null) System.out.println("Last key before error: " + bucketWipe.getResult().getLastKey());
+            System.out.println("Last key before error: " + bucketWipe.getResult().getLastKey());
             printHelp();
             System.exit(2);
         }
@@ -140,7 +140,7 @@ public class BucketWipe implements Runnable {
     private boolean hierarchical;
     private String sourceListFile;
     private boolean deleteMpus;
-    private BucketWipeResult result = new BucketWipeResult();
+    private final BucketWipeResult result = new BucketWipeResult();
 
     @Override
     public void run() {
@@ -177,11 +177,7 @@ public class BucketWipe implements Runnable {
             if (prefix == null && !keepBucket) {
                 client.deleteBucket(bucket);
             }
-        } catch (InterruptedException e) {
-            result.addError(e.getMessage());
-        } catch (ExecutionException e) {
-            result.addError(e.getMessage());
-        } catch (S3Exception e) {
+        } catch (InterruptedException | ExecutionException | S3Exception e) {
             result.addError(e.getMessage());
         } finally {
             bucketWipeOperations.shutdown();
@@ -220,9 +216,13 @@ public class BucketWipe implements Runnable {
         this.accessKey = accessKey;
     }
 
-    public String getSourceListFile() { return sourceListFile;}
+    public String getSourceListFile() {
+        return sourceListFile;
+    }
 
-    public void setSourceListFile(String sourceListFile) { this.sourceListFile = sourceListFile;}
+    public void setSourceListFile(String sourceListFile) {
+        this.sourceListFile = sourceListFile;
+    }
 
     public String getSecretKey() {
         return secretKey;
