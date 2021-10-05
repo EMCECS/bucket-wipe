@@ -10,7 +10,6 @@ import com.emc.object.s3.bean.S3Object;
 import com.emc.object.s3.request.DeleteObjectsRequest;
 import com.emc.object.s3.request.ListObjectsRequest;
 import com.emc.object.s3.request.ListVersionsRequest;
-import com.emc.object.util.RestUtil;
 
 import java.io.BufferedReader;
 import java.io.FileNotFoundException;
@@ -83,7 +82,7 @@ public class BucketWipeOperations {
             try {
                 String key = reader.readLine();
                 while (key != null) {
-                    submitTask(new DeleteObjectTask(client, bucket, RestUtil.urlDecode(key)), result);
+                    submitTask(new DeleteObjectTask(client, bucket, key), result);
                     key = reader.readLine();
                 }
             } finally {
@@ -122,7 +121,7 @@ public class BucketWipeOperations {
 
             for (S3Object object : listing.getObjects()) {
                 result.setLastKey(object.getKey());
-                submitTask(new DeleteObjectTask(client, bucket, RestUtil.urlDecode(object.getKey())), result);
+                submitTask(new DeleteObjectTask(client, bucket, object.getKey()), result);
             }
 
             subPrefixes.addAll(listing.getCommonPrefixes());
@@ -180,7 +179,7 @@ public class BucketWipeOperations {
 
             for (AbstractVersion version : listing.getVersions()) {
                 result.setLastKey(version.getKey() + " (version " + version.getVersionId() + ")");
-                submitTask(new DeleteVersionTask(client, bucket, RestUtil.urlDecode(version.getKey()), version.getVersionId()), result);
+                submitTask(new DeleteVersionTask(client, bucket, version.getKey(), version.getVersionId()), result);
             }
 
         } while (listing.isTruncated());
