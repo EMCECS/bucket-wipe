@@ -1,16 +1,17 @@
-/**
- * Copyright 2016-2019 Dell Inc. or its subsidiaries.  All Rights Reserved.
+/*
+ * Copyright (c) 2016-2021 Dell Inc., or its subsidiaries. All Rights Reserved.
  *
- * Licensed under the Apache License, Version 2.0 (the "License").
- * You may not use this file except in compliance with the License.
- * A copy of the License is located at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0.txt
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- * or in the "license" file accompanying this file. This file is distributed
- * on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
- * express or implied. See the License for the specific language governing
- * permissions and limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 package com.emc.ecs.tool;
 
@@ -19,11 +20,7 @@ import com.emc.object.s3.S3Client;
 import com.emc.object.s3.S3Config;
 import com.emc.object.s3.S3Exception;
 import com.emc.object.s3.jersey.S3JerseyClient;
-import org.apache.commons.cli.CommandLine;
-import org.apache.commons.cli.DefaultParser;
-import org.apache.commons.cli.HelpFormatter;
-import org.apache.commons.cli.Option;
-import org.apache.commons.cli.Options;
+import org.apache.commons.cli.*;
 
 import java.net.URI;
 import java.util.concurrent.ExecutionException;
@@ -33,7 +30,7 @@ import static com.emc.ecs.tool.BucketWipeOperations.DEFAULT_MAX_CONCURRENT;
 import static com.emc.ecs.tool.BucketWipeOperations.DEFAULT_THREADS;
 
 public class BucketWipe implements Runnable {
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) {
         boolean debug = false;
         final BucketWipe bucketWipe = new BucketWipe();
         try {
@@ -57,7 +54,8 @@ public class BucketWipe implements Runnable {
             bucketWipe.setSourceListFile(line.getOptionValue("l"));
             if (line.hasOption("p")) bucketWipe.setPrefix(line.getOptionValue("p"));
             if (line.hasOption("t")) bucketWipe.setThreads(Integer.parseInt(line.getOptionValue("t")));
-            if(line.hasOption("hier")) bucketWipe.setHierarchical(true);
+            if (line.hasOption("hier")) bucketWipe.setHierarchical(true);
+            if (line.hasOption("delete-mpus")) bucketWipe.setDeleteMpus(true);
             bucketWipe.setBucket(line.getArgs()[0]);
 
             // update the user
@@ -84,7 +82,7 @@ public class BucketWipe implements Runnable {
             System.out.print("Objects deleted: " + bucketWipe.getResult().getDeletedObjects() + "\r");
             System.out.println();
 
-            System.out.println(String.format("Duration: %d secs (%.2f/s)", duration / 1000, xput));
+            System.out.printf("Duration: %d secs (%.2f/s)%n", duration / 1000, xput);
 
             for (String error : bucketWipe.getResult().getErrors()) {
                 System.out.println("Error: " + error);
@@ -93,7 +91,7 @@ public class BucketWipe implements Runnable {
         } catch (Throwable t) {
             System.out.println("Error: " + t.getMessage());
             if (debug) t.printStackTrace();
-            if (bucketWipe != null) System.out.println("Last key before error: " + bucketWipe.getResult().getLastKey());
+            System.out.println("Last key before error: " + bucketWipe.getResult().getLastKey());
             printHelp();
             System.exit(2);
         }
@@ -126,6 +124,8 @@ public class BucketWipe implements Runnable {
         options.addOption(Option.builder().longOpt("keep-bucket").desc("do not delete the bucket when done").build());
         options.addOption(Option.builder("l").longOpt("key-list").hasArg().argName("file")
                 .desc("instead of listing bucket, delete objects matched in source file key list").build());
+        options.addOption(Option.builder().longOpt("delete-mpus").desc("incomplete MPUs will prevent the " +
+                "bucket from being deleted. use this option to clean up all incomplete MPUs").build());
         return options;
     }
 
@@ -140,7 +140,8 @@ public class BucketWipe implements Runnable {
     private boolean keepBucket;
     private boolean hierarchical;
     private String sourceListFile;
-    private BucketWipeResult result = new BucketWipeResult();
+    private boolean deleteMpus;
+    private final BucketWipeResult result = new BucketWipeResult();
 
     @Override
     public void run() {
@@ -167,17 +168,17 @@ public class BucketWipe implements Runnable {
                 bucketWipeOperations.deleteAllVersions(bucket, prefix, result);
             }
 
+            if (deleteMpus) bucketWipeOperations.deleteAllMpus(bucket, result);
+
+            result.allActionsSubmitted();
+
             // Wait for operation to complete
             result.getCompletedFuture().get();
 
             if (prefix == null && !keepBucket) {
                 client.deleteBucket(bucket);
             }
-        } catch (InterruptedException e) {
-            result.addError(e.getMessage());
-        } catch (ExecutionException e) {
-            result.addError(e.getMessage());
-        } catch (S3Exception e) {
+        } catch (InterruptedException | ExecutionException | S3Exception e) {
             result.addError(e.getMessage());
         } finally {
             bucketWipeOperations.shutdown();
@@ -216,9 +217,13 @@ public class BucketWipe implements Runnable {
         this.accessKey = accessKey;
     }
 
-    public String getSourceListFile() { return sourceListFile;}
+    public String getSourceListFile() {
+        return sourceListFile;
+    }
 
-    public void setSourceListFile(String sourceListFile) { this.sourceListFile = sourceListFile;}
+    public void setSourceListFile(String sourceListFile) {
+        this.sourceListFile = sourceListFile;
+    }
 
     public String getSecretKey() {
         return secretKey;
@@ -268,6 +273,14 @@ public class BucketWipe implements Runnable {
         this.hierarchical = hierarchical;
     }
 
+    public boolean isDeleteMpus() {
+        return deleteMpus;
+    }
+
+    public void setDeleteMpus(boolean deleteMpus) {
+        this.deleteMpus = deleteMpus;
+    }
+
     public BucketWipe withEndpoint(URI endpoint) {
         setEndpoint(endpoint);
         return this;
@@ -285,6 +298,11 @@ public class BucketWipe implements Runnable {
 
     public BucketWipe withAccessKey(String accessKey) {
         setAccessKey(accessKey);
+        return this;
+    }
+
+    public BucketWipe withSourceListFile(String sourceListFile) {
+        setSourceListFile(sourceListFile);
         return this;
     }
 
@@ -310,6 +328,16 @@ public class BucketWipe implements Runnable {
 
     public BucketWipe withKeepBucket(boolean keepBucket) {
         setKeepBucket(keepBucket);
+        return this;
+    }
+
+    public BucketWipe withHierarchical(boolean hierarchical) {
+        setHierarchical(hierarchical);
+        return this;
+    }
+
+    public BucketWipe withDeleteMpus(boolean deleteMpus) {
+        setDeleteMpus(deleteMpus);
         return this;
     }
 }
