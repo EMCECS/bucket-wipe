@@ -1,7 +1,7 @@
 # Bucket Wipe 
 The purpose of the bucket-wipe tool is to enumerate a bucket and delete its contents in parallel threads.  At the end the bucket is optionally deleted.  This tool is required because you cannot (for safety reasons) delete a non-empty bucket.
 
-Current Version: 2.0.1
+Current Version: 2.1.0
 
 # Disclaimer about deleting data
 WARNING: THIS TOOL PERMANENTLY DELETES ALL DATA IN A BUCKET, INCLUDING ALL VERSIONS!! Even if you have versioning enabled, the tool will destroy all data in the bucket and (by default) the bucket itself.  If this is not what you want, use a different tool.
@@ -12,6 +12,11 @@ Bucket Wipe is a Java application and can be run using the `java -jar` command f
 ``` 
 usage: java -jar bucket-wipe.jar [options] <bucket-name>
  -a,--access-key <access-key>   the S3 access key
+    --delete-mpus               incomplete MPUs will prevent the bucket
+
+
+                                from being deleted. use this option to
+                                clean up all incomplete MPUs
  -e,--endpoint <URI>            the endpoint to connect to, including
                                 protocol, host, and port
  -h,--help                      displays this help text
