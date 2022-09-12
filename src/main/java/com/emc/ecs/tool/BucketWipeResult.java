@@ -16,8 +16,6 @@
 
 package com.emc.ecs.tool;
 
-import org.apache.http.annotation.GuardedBy;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -36,14 +34,15 @@ public class BucketWipeResult {
     private final AtomicBoolean allActionsSubmitted = new AtomicBoolean();
     private final CompletableFuture<Boolean> completedFuture = new CompletableFuture<>();
     private final List<String> errors = Collections.synchronizedList(new ArrayList<>());
-
-    @GuardedBy("this")
     private String lastKey;
 
     public CompletableFuture<Boolean> getCompletedFuture() {
         return completedFuture;
     }
 
+    /**
+     * GuardedBy "this"
+     */
     public String getLastKey() {
         synchronized (this) {
             return lastKey;
@@ -81,6 +80,9 @@ public class BucketWipeResult {
     }
 
 
+    /**
+     * GuardedBy "this"
+     */
     protected void setLastKey(String lastKey) {
         synchronized (this) {
             this.lastKey = lastKey;
