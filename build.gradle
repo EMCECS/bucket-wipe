@@ -5,7 +5,7 @@ plugins {
     id 'net.saliman.cobertura' version '4.0.0'
     id 'distribution'
     id 'com.github.johnrengelman.shadow' version '6.1.0'
-    id 'com.github.jk1.dependency-license-report' version '1.17'
+    id 'com.github.jk1.dependency-license-report' version '1.19'
     id 'signing'
     id 'maven'
     id 'org.ajoberstar.git-publish' version '3.0.1'
@@ -37,9 +37,9 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.emc.ecs:object-client:3.4.2'
-    implementation 'com.emc.ecs:smart-client-ecs:3.0.0'
-    implementation 'org.apache.logging.log4j:log4j-slf4j-impl:2.18.0'
+    implementation 'com.emc.ecs:object-client:3.4.4'
+    implementation 'com.emc.ecs:smart-client-ecs:3.0.1'
+    implementation 'org.apache.logging.log4j:log4j-slf4j-impl:2.19.0'
     implementation 'commons-cli:commons-cli:1.5.0'
     testImplementation 'junit:junit:4.13.2'
 }

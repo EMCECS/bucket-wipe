@@ -35,6 +35,7 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
 import java.net.URI;
+import java.util.Arrays;
 
 public class TestBucketWipe {
     private static final Logger log = LoggerFactory.getLogger(TestBucketWipe.class);
@@ -122,12 +123,13 @@ public class TestBucketWipe {
     @Test
     public void testUrlEncoding() {
         S3Client client = new S3JerseyClient(getS3Config());
-        String bucketName = "test-bucket-wipe";
+        String bucketName = "test-bucket-wipe-encoding";
         String[] keys = {
                 "foo!@#$%^&*()-_=+",
-                "bar\\u00a1\\u00bfbar",
+                "bar\u00a1\u00bfbar",
                 "查找的unicode",
-                "baz\\u0007bim"
+                "baz\u0007bim",
+                "spaces  test"
         };
 
         // create bucket and keys
@@ -162,9 +164,68 @@ public class TestBucketWipe {
     }
 
     @Test
+    public void testVersions() {
+        S3Client client = new S3JerseyClient(getS3Config());
+        String bucketName = "test-bucket-wipe-versions";
+        String[] keys = {
+                "foo!@#$%^&*()-_=+",
+                "bar\u00a1\u00bfbar",
+                "查找的unicode",
+                "baz\u0007bim",
+                "spaces  test"
+        };
+
+        // create bucket and keys
+        createBucketAndKeys(client, bucketName, keys);
+
+        // enable versioning
+        client.setBucketVersioning(bucketName, new VersioningConfiguration().withStatus(VersioningConfiguration.Status.Enabled));
+
+        // delete some keys (even indexes)
+        int counter = 0;
+        for (String key : keys) {
+            if (counter++ % 2 == 0) client.deleteObject(bucketName, key);
+        }
+        // overwrite all keys
+        Arrays.stream(keys).forEach(key -> client.putObject(bucketName, key, "foo", "text/plain"));
+        // delete some other keys (odd indexes)
+        counter = 0;
+        for (String key : keys) {
+            if (counter++ % 2 == 1) client.deleteObject(bucketName, key);
+        }
+
+        try {
+            // delete the bucket with bucket-wipe
+            BucketWipe bucketWipe = new BucketWipe().withEndpoint(endpoint).withSmartClient(false)
+                    .withAccessKey(accessKey).withSecretKey(secretKey);
+            bucketWipe.withBucket(bucketName).run();
+
+            if (bucketWipe.getResult().getErrors().size() > 0) {
+                for (String error : bucketWipe.getResult().getErrors()) {
+                    System.err.println(error);
+                }
+            }
+
+            Assert.assertEquals(keys.length * 3, bucketWipe.getResult().getDeletedObjects());
+            Assert.assertEquals(0, bucketWipe.getResult().getErrors().size());
+
+            try {
+                client.listObjects(bucketName);
+                Assert.fail("bucket still exists");
+            } catch (S3Exception e) {
+                if (e.getHttpCode() != 404) log.error("unexpected error listing bucket", e);
+                Assert.assertEquals(e.getHttpCode(), 404);
+            }
+        } finally {
+            // clean up bucket and keys if necessary
+            deleteBucket(client, bucketName);
+        }
+    }
+
+    @Test
     public void testWithSourceList() throws Exception {
         S3Client client = new S3JerseyClient(getS3Config());
-        String bucketName = "test-bucket-wipe";
+        String bucketName = "test-bucket-wipe-list";
         String[] keys = {
                 "key-1",
                 "key-2",
@@ -220,7 +281,7 @@ public class TestBucketWipe {
     public void testKeepBucket() {
         // create bucket
         S3Client client = new S3JerseyClient(getS3Config());
-        String bucketName = "test-bucket-wipe";
+        String bucketName = "test-bucket-wipe-keep";
         String[] keys = {
                 "key-1",
                 "key-2",
@@ -263,7 +324,7 @@ public class TestBucketWipe {
     @Test
     public void testDeleteMpu() {
         S3Client client = new S3JerseyClient(getS3Config());
-        String bucketName = "test-bucket-wipe";
+        String bucketName = "test-bucket-wipe-mpu";
         String[] keys = {
                 "key-1",
                 "key-2",
