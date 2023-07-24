@@ -142,7 +142,7 @@ public class BucketWipe implements Runnable {
                 .desc("instead of listing bucket, delete objects matched in source file key list").build());
         options.addOption(Option.builder().longOpt("delete-mpus").desc("incomplete MPUs will prevent the " +
                 "bucket from being deleted. use this option to clean up all incomplete MPUs").build());
-        options.addOption(Option.builder("y").longOpt("accept-disclaimer").argName("accept-disclaimer")
+        options.addOption(Option.builder("y").longOpt("accept-disclaimer")
                 .desc("Acknowledge and accept that you understand \"THIS TOOL PERMANENTLY DELETES ALL DATA IN A BUCKET, INCLUDING ALL VERSIONS.\"")
                 .build());
         return options;
