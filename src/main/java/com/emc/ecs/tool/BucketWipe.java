@@ -23,6 +23,7 @@ import com.emc.object.s3.jersey.S3JerseyClient;
 import org.apache.commons.cli.*;
 
 import java.net.URI;
+import java.util.Scanner;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -32,6 +33,9 @@ import static com.emc.ecs.tool.BucketWipeOperations.DEFAULT_THREADS;
 public class BucketWipe implements Runnable {
     public static void main(String[] args) {
         boolean debug = false;
+        final String DISCLAIMER = "WARNING: THIS TOOL PERMANENTLY DELETES ALL DATA IN A BUCKET, INCLUDING ALL VERSIONS!!\n" +
+                "Even if you have versioning enabled, the tool will destroy all data in the bucket and (by default) " +
+                "the bucket itself.\nIf this is not what you want, please use a different tool.";
         final BucketWipe bucketWipe = new BucketWipe();
         try {
             CommandLine line = new DefaultParser().parse(options(), args, true);
@@ -57,6 +61,18 @@ public class BucketWipe implements Runnable {
             if (line.hasOption("hier")) bucketWipe.setHierarchical(true);
             if (line.hasOption("delete-mpus")) bucketWipe.setDeleteMpus(true);
             bucketWipe.setBucket(line.getArgs()[0]);
+
+            if (!line.hasOption("y")) {
+                System.out.println(DISCLAIMER);
+                System.out.print("Are you sure to continue(Y/N):");
+                Scanner scan = new Scanner(System.in);
+                String s = scan.next();
+                if (!s.equals("y") && !s.equals("Y"))
+                    throw new Exception("Disclaimer is not accepted.");
+            }else {
+                System.out.println(DISCLAIMER);
+                System.out.println("User acknowledged and accepted the above disclaimer with option -y/--accept-disclaimer.");
+            }
 
             // update the user
             final AtomicBoolean monitorRunning = new AtomicBoolean(true);
@@ -126,6 +142,9 @@ public class BucketWipe implements Runnable {
                 .desc("instead of listing bucket, delete objects matched in source file key list").build());
         options.addOption(Option.builder().longOpt("delete-mpus").desc("incomplete MPUs will prevent the " +
                 "bucket from being deleted. use this option to clean up all incomplete MPUs").build());
+        options.addOption(Option.builder("y").longOpt("accept-disclaimer")
+                .desc("Acknowledge and accept that you understand \"THIS TOOL PERMANENTLY DELETES ALL DATA IN A BUCKET, INCLUDING ALL VERSIONS.\"")
+                .build());
         return options;
     }
 
